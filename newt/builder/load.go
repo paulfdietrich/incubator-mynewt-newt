@@ -29,30 +29,34 @@ import (
 	"mynewt.apache.org/newt/util"
 )
 
+func (t *TargetBuilder) Load() error {
+	return t.App.Load()
+}
+
 func (b *Builder) Load() error {
-	if b.target.App() == nil {
+	if b.appPkg == nil {
 		return util.NewNewtError("app package not specified")
 	}
 
 	/*
 	 * Populate the package list and feature sets.
 	 */
-	err := b.PrepBuild()
+	err := b.target.PrepBuild()
 	if err != nil {
 		return err
 	}
 
-	if b.Bsp.DownloadScript == "" {
+	if b.target.Bsp.DownloadScript == "" {
 		/*
 		 *
 		 */
 		util.StatusMessage(util.VERBOSITY_DEFAULT,
-			"No download script for BSP %s\n", b.Bsp.Name())
+			"No download script for BSP %s\n", b.target.Bsp.Name())
 		return nil
 	}
 
-	bspPath := b.Bsp.BasePath()
-	downloadScript := filepath.Join(bspPath, b.Bsp.DownloadScript)
+	bspPath := b.target.Bsp.BasePath()
+	downloadScript := filepath.Join(bspPath, b.target.Bsp.DownloadScript)
 	binBaseName := b.AppBinBasePath()
 	featureString := b.FeatureString()
 
@@ -72,21 +76,25 @@ func (b *Builder) Load() error {
 	return nil
 }
 
+func (t *TargetBuilder) Debug() error {
+	return t.App.Debug()
+}
+
 func (b *Builder) Debug() error {
-	if b.target.App() == nil {
+	if b.appPkg == nil {
 		return util.NewNewtError("app package not specified")
 	}
 
 	/*
 	 * Populate the package list and feature sets.
 	 */
-	err := b.PrepBuild()
+	err := b.target.PrepBuild()
 	if err != nil {
 		return err
 	}
 
-	bspPath := b.Bsp.BasePath()
-	debugScript := filepath.Join(bspPath, b.Bsp.DebugScript)
+	bspPath := b.target.Bsp.BasePath()
+	debugScript := filepath.Join(bspPath, b.target.Bsp.DebugScript)
 	binBaseName := b.AppBinBasePath()
 	featureString := strings.Split(b.FeatureString(), " ")
 

@@ -315,16 +315,20 @@ func PrintSizes(libs map[string]*PkgSize,
 	return ret, nil
 }
 
+func (t *TargetBuilder) Size() error {
+	return t.App.Size()
+}
+
 func (b *Builder) Size() error {
-	if b.target.App() == nil {
+	if b.appPkg == nil {
 		return util.NewNewtError("app package not specified for this target")
 	}
 
-	err := b.PrepBuild()
+	err := b.target.PrepBuild()
 	if err != nil {
 		return err
 	}
-	if b.Bsp.Arch == "sim" {
+	if b.target.Bsp.Arch == "sim" {
 		fmt.Println("'newt size' not supported for sim targets.")
 		return nil
 	}

@@ -42,7 +42,7 @@ func runRunCmd(cmd *cobra.Command, args []string) {
 		NewtUsage(cmd, util.NewNewtError("Invalid target name: "+args[0]))
 	}
 
-	b, err := builder.NewBuilder(t)
+	b, err := builder.NewTargetBuilder(t)
 	if err != nil {
 		NewtUsage(nil, err)
 	}
@@ -59,7 +59,7 @@ func runRunCmd(cmd *cobra.Command, args []string) {
 	 * downloading an older version.
 	 */
 	if len(args) > 1 {
-		image, err := image.NewImage(b)
+		image, err := image.NewImage(b.App)
 		if err != nil {
 			NewtUsage(cmd, err)
 		}
@@ -76,7 +76,7 @@ func runRunCmd(cmd *cobra.Command, args []string) {
 			NewtUsage(cmd, err)
 		}
 	} else {
-		os.Remove(b.AppImgPath())
+		os.Remove(b.App.AppImgPath())
 	}
 	err = b.Load()
 	if err != nil {

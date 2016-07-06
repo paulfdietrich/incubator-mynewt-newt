@@ -362,12 +362,12 @@ func (bpkg *BuildPackage) privateIncludeDirs(b *Builder) []string {
 
 	incls := []string{}
 	incls = append(incls, srcDir)
-	incls = append(incls, srcDir+"/arch/"+b.Bsp.Arch)
+	incls = append(incls, srcDir+"/arch/"+b.target.Bsp.Arch)
 
 	if b.Features(bpkg)["TEST"] {
 		testSrcDir := srcDir + "/test"
 		incls = append(incls, testSrcDir)
-		incls = append(incls, testSrcDir+"/arch/"+b.Bsp.Arch)
+		incls = append(incls, testSrcDir+"/arch/"+b.target.Bsp.Arch)
 	}
 
 	// If pkgType == SDK, include all the items in "ext" directly into the

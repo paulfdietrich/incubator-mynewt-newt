@@ -29,40 +29,34 @@ import (
 	log "github.com/Sirupsen/logrus"
 
 	"mynewt.apache.org/newt/newt/pkg"
-	"mynewt.apache.org/newt/newt/target"
 	"mynewt.apache.org/newt/newt/toolchain"
 	"mynewt.apache.org/newt/util"
 )
 
 type Builder struct {
-	Packages map[*pkg.LocalPackage]*BuildPackage
-	features map[string]bool
-	apis     map[string]*BuildPackage
-
-	appPkg       *BuildPackage
-	Bsp          *pkg.BspPackage
-	compilerPkg  *pkg.LocalPackage
-	compilerInfo *toolchain.CompilerInfo
-
+	Packages         map[*pkg.LocalPackage]*BuildPackage
+	features         map[string]bool
+	apis             map[string]*BuildPackage
+	appPkg           *BuildPackage
+	compilerInfo     *toolchain.CompilerInfo
 	featureWhiteList []map[string]interface{}
 	featureBlackList []map[string]interface{}
-
-	target *target.Target
+	target           *TargetBuilder
+	linkerScript     string
 }
 
-func NewBuilder(target *target.Target) (*Builder, error) {
+func NewBuilder(t *TargetBuilder) (*Builder, error) {
 	b := &Builder{}
 
-	if err := b.Init(target); err != nil {
-		return nil, err
-	}
+	/* TODO */
+	b.Init(t)
 
 	return b, nil
 }
 
-func (b *Builder) Init(target *target.Target) error {
-	b.target = target
+func (b *Builder) Init(t *TargetBuilder) error {
 
+	b.target = t
 	b.Packages = map[*pkg.LocalPackage]*BuildPackage{}
 	b.features = map[string]bool{}
 	b.apis = map[string]*BuildPackage{}
@@ -215,11 +209,11 @@ func buildDir(srcDir string, c *toolchain.Compiler, arch string,
 func (b *Builder) newCompiler(bpkg *BuildPackage,
 	dstDir string) (*toolchain.Compiler, error) {
 
-	c, err := toolchain.NewCompiler(b.compilerPkg.BasePath(), dstDir,
-		b.target.BuildProfile)
+	c, err := b.target.NewCompiler(dstDir)
 	if err != nil {
 		return nil, err
 	}
+
 	c.AddInfo(b.compilerInfo)
 
 	if bpkg != nil {
@@ -279,12 +273,12 @@ func (b *Builder) buildPackage(bpkg *BuildPackage) error {
 	//     * src/arch/<target-arch>
 	//     * src/test/arch/<target-arch>
 	for _, dir := range srcDirs {
-		if err = buildDir(dir, c, b.Bsp.Arch, []string{"test"}); err != nil {
+		if err = buildDir(dir, c, b.target.Bsp.Arch, []string{"test"}); err != nil {
 			return err
 		}
 		if b.features["TEST"] {
 			testSrcDir := dir + "/test"
-			if err = buildDir(testSrcDir, c, b.Bsp.Arch, nil); err != nil {
+			if err = buildDir(testSrcDir, c, b.target.Arch, nil); err != nil {
 				return err
 			}
 		}
@@ -316,8 +310,8 @@ func (b *Builder) link(elfName string) error {
 		}
 	}
 
-	if b.Bsp.LinkerScript != "" {
-		c.LinkerScript = b.Bsp.BasePath() + b.Bsp.LinkerScript
+	if b.linkerScript != "" {
+		c.LinkerScript = b.target.Bsp.BasePath() + b.linkerScript
 	}
 	err = c.CompileElf(elfName, pkgNames)
 	if err != nil {
@@ -330,42 +324,10 @@ func (b *Builder) link(elfName string) error {
 // Populates the builder with all the packages that need to be built and
 // configures each package's build settings.  After this function executes,
 // packages are ready to be built.
-func (b *Builder) PrepBuild() error {
-	if b.Bsp != nil {
-		// Already prepped
-		return nil
-	}
+func (b *Builder) PrepBuild(appPkg *pkg.LocalPackage, bspPkg *pkg.LocalPackage, targetPkg *pkg.LocalPackage) error {
 
 	b.featureBlackList = []map[string]interface{}{}
 	b.featureWhiteList = []map[string]interface{}{}
-
-	// Collect the seed packages.
-	bspPkg := b.target.Bsp()
-	if bspPkg == nil {
-		if b.target.BspName == "" {
-			return util.NewNewtError("BSP package not specified by target")
-		} else {
-			return util.NewNewtError("BSP package not found: " +
-				b.target.BspName)
-		}
-	}
-
-	b.featureBlackList = append(b.featureBlackList, bspPkg.FeatureBlackList())
-	b.featureWhiteList = append(b.featureWhiteList, bspPkg.FeatureWhiteList())
-
-	b.Bsp = pkg.NewBspPackage(bspPkg)
-	compilerPkg := b.resolveCompiler()
-	if compilerPkg == nil {
-		if b.Bsp.CompilerName == "" {
-			return util.NewNewtError("Compiler package not specified by BSP")
-		} else {
-			return util.NewNewtError("Compiler package not found: " +
-				b.Bsp.CompilerName)
-		}
-	}
-
-	// An app package is not required (e.g., unit tests).
-	appPkg := b.target.App()
 
 	// Seed the builder with the app (if present), bsp, and target packages.
 
@@ -382,11 +344,15 @@ func (b *Builder) PrepBuild() error {
 	}
 
 	bspBpkg := b.Packages[bspPkg]
+
 	if bspBpkg == nil {
 		bspBpkg = b.AddPackage(bspPkg)
 	}
 
-	targetBpkg := b.AddPackage(b.target.Package())
+	b.featureBlackList = append(b.featureBlackList, bspPkg.FeatureBlackList())
+	b.featureWhiteList = append(b.featureWhiteList, bspPkg.FeatureWhiteList())
+
+	targetBpkg := b.AddPackage(targetPkg)
 
 	b.featureBlackList = append(b.featureBlackList, targetBpkg.FeatureBlackList())
 	b.featureWhiteList = append(b.featureWhiteList, targetBpkg.FeatureWhiteList())
@@ -448,11 +414,10 @@ func (b *Builder) PrepBuild() error {
 		return err
 	}
 
-	// Define a cpp symbol indicating the BSP architecture, name of the BSP and
-	// app.
-	bspCi.Cflags = append(bspCi.Cflags, "-DARCH_"+b.Bsp.Arch)
+	// Define a cpp symbol indicating the BSP architecture, name of the BSP and app.
+	bspCi.Cflags = append(bspCi.Cflags, "-DARCH_"+b.target.Bsp.Arch)
 	bspCi.Cflags = append(bspCi.Cflags,
-		"-DBSP_NAME=\""+filepath.Base(b.Bsp.Name())+"\"")
+		"-DBSP_NAME=\""+filepath.Base(b.target.Bsp.Name())+"\"")
 	if appPkg != nil {
 		bspCi.Cflags = append(bspCi.Cflags,
 			"-DAPP_NAME=\""+filepath.Base(appPkg.Name())+"\"")
@@ -461,14 +426,6 @@ func (b *Builder) PrepBuild() error {
 
 	// Note: Compiler flags get added at the end, after the flags for library
 	// package being built are calculated.
-
-	// Read the BSP configuration.  These settings are necessary for the link
-	// step.
-	if err := b.Bsp.Reload(b.Features(b.Bsp)); err != nil {
-		return err
-	}
-
-	b.compilerPkg = compilerPkg
 	b.compilerInfo = baseCi
 
 	return nil
@@ -514,13 +471,10 @@ func (b *Builder) CheckValidFeature(pkg pkg.Package,
 }
 
 func (b *Builder) Build() error {
-	if err := b.target.Validate(true); err != nil {
-		return err
-	}
 
 	// Populate the package and feature sets and calculate the base compiler
 	// flags.
-	if err := b.PrepBuild(); err != nil {
+	if err := b.target.PrepBuild(); err != nil {
 		return err
 	}
 
@@ -540,9 +494,6 @@ func (b *Builder) Build() error {
 }
 
 func (b *Builder) Test(p *pkg.LocalPackage) error {
-	if err := b.target.Validate(false); err != nil {
-		return err
-	}
 
 	// Seed the builder with the package under test.
 	testBpkg := b.AddPackage(p)
@@ -556,7 +507,7 @@ func (b *Builder) Test(p *pkg.LocalPackage) error {
 
 	// Populate the package and feature sets and calculate the base compiler
 	// flags.
-	err := b.PrepBuild()
+	err := b.target.PrepBuild()
 	if err != nil {
 		return err
 	}

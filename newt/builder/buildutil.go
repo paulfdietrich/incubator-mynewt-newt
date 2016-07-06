@@ -26,7 +26,6 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
-	"mynewt.apache.org/newt/newt/pkg"
 	"mynewt.apache.org/newt/newt/project"
 	"mynewt.apache.org/newt/util"
 )
@@ -36,7 +35,7 @@ func BinRoot() string {
 }
 
 func (b *Builder) BinDir() string {
-	return BinRoot() + "/" + b.target.ShortName()
+	return BinRoot() + "/" + b.target.target.Name()
 }
 
 func (b *Builder) PkgBinDir(pkgName string) string {
@@ -49,22 +48,22 @@ func (b *Builder) ArchivePath(pkgName string) string {
 }
 
 func (b *Builder) AppElfPath() string {
-	pkgName := b.target.App().Name()
+	pkgName := b.appPkg.Name()
 	return b.PkgBinDir(pkgName) + "/" + filepath.Base(pkgName) + ".elf"
 }
 
 func (b *Builder) AppImgPath() string {
-	pkgName := b.target.App().Name()
+	pkgName := b.appPkg.Name()
 	return b.PkgBinDir(pkgName) + "/" + filepath.Base(pkgName) + ".img"
 }
 
 func (b *Builder) AppPath() string {
-	pkgName := b.target.App().Name()
+	pkgName := b.appPkg.Name()
 	return b.PkgBinDir(pkgName) + "/"
 }
 
 func (b *Builder) AppBinBasePath() string {
-	pkgName := b.target.App().Name()
+	pkgName := b.appPkg.Name()
 	return b.PkgBinDir(pkgName) + "/" + filepath.Base(pkgName)
 }
 
@@ -92,15 +91,6 @@ func (b *Builder) FeatureString() string {
 		buffer.WriteString(feature)
 	}
 	return buffer.String()
-}
-
-func (b *Builder) resolveCompiler() *pkg.LocalPackage {
-	if b.Bsp.CompilerName == "" {
-		return nil
-	}
-	dep, _ := pkg.NewDependency(b.Bsp.Repo(), b.Bsp.CompilerName)
-	mypkg := project.GetProject().ResolveDependency(dep).(*pkg.LocalPackage)
-	return mypkg
 }
 
 // Makes sure all packages with required APIs have been augmented with a

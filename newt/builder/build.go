@@ -488,10 +488,13 @@ func (b *Builder) Build() error {
 		}
 	}
 
+	return nil
+}
+
+func (b *Builder) Link() error {
 	if err := b.link(b.AppElfPath()); err != nil {
 		return err
 	}
-
 	return nil
 }
 

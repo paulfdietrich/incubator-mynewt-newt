@@ -118,23 +118,30 @@ func (t *TargetBuilder) PrepBuild() error {
 }
 
 func (t *TargetBuilder) Build() error {
+	var err error
 
-	if err := t.target.Validate(true); err != nil {
+	if err = t.target.Validate(true); err != nil {
 		return err
 	}
 
-	if err := t.PrepBuild(); err != nil {
+	if err = t.PrepBuild(); err != nil {
 		return err
 	}
 
-	if err := t.Bsp.Reload(t.Loader.Features()); err != nil {
+	if err = t.Bsp.Reload(t.Loader.Features()); err != nil {
 		return err
 	}
 
 	if t.Loader != nil {
 
 		project.ResetDeps(t.LoaderList)
-		err := t.Loader.Build()
+		err = t.Loader.Build()
+
+		if err != nil {
+			return err
+		}
+
+		err = t.Loader.Link()
 
 		if err != nil {
 			return err
@@ -147,7 +154,13 @@ func (t *TargetBuilder) Build() error {
 
 	/* Build the Apps */
 	project.ResetDeps(t.AppList)
-	err := t.App.Build()
+	err = t.App.Build()
+
+	if err != nil {
+		return err
+	}
+
+	err = t.App.Link()
 
 	return err
 }

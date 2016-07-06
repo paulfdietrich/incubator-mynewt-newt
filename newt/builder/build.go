@@ -43,11 +43,13 @@ type Builder struct {
 	featureBlackList []map[string]interface{}
 	target           *TargetBuilder
 	linkerScript     string
+	buildName        string
 }
 
-func NewBuilder(t *TargetBuilder) (*Builder, error) {
+func NewBuilder(t *TargetBuilder, buildName string) (*Builder, error) {
 	b := &Builder{}
 
+	b.buildName = buildName
 	/* TODO */
 	b.Init(t)
 

@@ -92,16 +92,20 @@ func (t *TargetBuilder) PrepBuild() error {
 
 	t.compilerPkg = compilerPkg
 
-	app, err := NewBuilder(t)
+	app, err := NewBuilder(t, "app")
 
 	if err == nil {
 		t.App = app
+	} else {
+		return err
 	}
 
-	loader, err := NewBuilder(t)
+	loader, err := NewBuilder(t, "loader")
 
 	if err == nil {
 		t.Loader = loader
+	} else {
+		return err
 	}
 
 	t.Loader.PrepBuild(loaderPkg, bspPkg, targetPkg)
@@ -167,9 +171,15 @@ func (t *TargetBuilder) resolveCompiler() *pkg.LocalPackage {
 }
 
 func (t *TargetBuilder) Clean() error {
+	var err error
 
-	if t.App != nil {
-		return t.App.Clean()
+	err = t.PrepBuild()
+
+	if err == nil && t.App != nil {
+		err = t.App.Clean()
 	}
-	return nil
+	if err == nil && t.Loader != nil {
+		err = t.Loader.Clean()
+	}
+	return err
 }

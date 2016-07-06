@@ -35,7 +35,7 @@ func BinRoot() string {
 }
 
 func (b *Builder) BinDir() string {
-	return BinRoot() + "/" + b.target.target.Name()
+	return BinRoot() + "/" + b.target.target.Name() + "/" + b.buildName
 }
 
 func (b *Builder) PkgBinDir(pkgName string) string {

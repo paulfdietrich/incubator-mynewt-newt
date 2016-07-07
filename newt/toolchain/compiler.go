@@ -793,6 +793,16 @@ func (c *Compiler) CompileElf(binFile string, objFiles []string) error {
 	return nil
 }
 
+func (c *Compiler) RemoveSymbolCmd(symbolName string, libraryFile string) string {
+	val := c.ocPath + " --redefine-sym " + symbolName + "=" + symbolName + "_old " + libraryFile
+	return val
+}
+
+func (c *Compiler) ParseLibraryCmd(libraryFile string) string {
+	val := c.odPath + " -t " + libraryFile
+	return val
+}
+
 // Calculates the command-line invocation necessary to archive the specified
 // static library.
 //
@@ -853,4 +863,14 @@ func (c *Compiler) CompileArchive(archiveFile string) error {
 	}
 
 	return nil
+}
+
+func (c *Compiler) ParseLibrary(libraryFile string) (error, []byte) {
+	cmd := c.ParseLibraryCmd(libraryFile)
+
+	out, err := util.ShellCommand(cmd)
+	if err != nil {
+		return err, nil
+	}
+	return err, out
 }

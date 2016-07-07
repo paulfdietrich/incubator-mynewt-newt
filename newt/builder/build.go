@@ -564,3 +564,19 @@ func (b *Builder) Clean() error {
 	err := os.RemoveAll(path)
 	return err
 }
+
+func (b *Builder) FetchSymbolMap() (error, *SymbolMap) {
+	loader_sm := NewSymbolMap()
+
+	for _, value := range b.Packages {
+		err, sm := b.ParseObjectLibrary(value)
+		if err == nil {
+			fmt.Printf("Size of %s Loader Map %d\n", len(*sm))
+			loader_sm.Merge(sm)
+		} else {
+			fmt.Printf("Error Reading file %s\n", value.Name())
+		}
+	}
+
+	return nil, loader_sm
+}

@@ -20,6 +20,8 @@
 package builder
 
 import (
+	"fmt"
+
 	"mynewt.apache.org/newt/newt/interfaces"
 	"mynewt.apache.org/newt/newt/pkg"
 	"mynewt.apache.org/newt/newt/project"
@@ -132,6 +134,8 @@ func (t *TargetBuilder) Build() error {
 		return err
 	}
 
+	loader_sm := NewSymbolMap()
+
 	if t.Loader != nil {
 
 		project.ResetDeps(t.LoaderList)
@@ -146,6 +150,14 @@ func (t *TargetBuilder) Build() error {
 		if err != nil {
 			return err
 		}
+
+		err, loader_sm = t.Loader.FetchSymbolMap()
+		if err != nil {
+			return err
+		}
+
+		loader_sm.Dump()
+
 	}
 
 	if err := t.Bsp.Reload(t.App.Features()); err != nil {
@@ -160,7 +172,42 @@ func (t *TargetBuilder) Build() error {
 		return err
 	}
 
+	err, app_sm := t.App.FetchSymbolMap()
+	if err != nil {
+		return err
+	}
+
+	app_sm.Dump()
+
+	fmt.Printf("Combining maps into the overlap\n ")
+
+	union_sm := IdenticalUnion(loader_sm, app_sm)
+
+	union_sm.Dump()
+
+	/* remove the symbols from the .a files in the app files */
+
+	for name, info1 := range *union_sm {
+		fmt.Printf("Removing symbol %s from %s Library\n", name, info1.bpkg)
+		err := t.App.RemoveSymbol(&info1)
+		if err != nil {
+			fmt.Printf("Error Removing symbol %s from app Library\n", name, err.Error())
+		}
+	}
+
+	/* copy the .elf from the loader */
+	/* slurp in all symbols */
+	/* go through each symbol in elf copy */
+	/* drop if not in union */
+
+	/* go through each symbol in the union... */
+	/* drop from apps libraries */
+
 	err = t.App.Link()
+
+	if err != nil {
+		return err
+	}
 
 	return err
 }

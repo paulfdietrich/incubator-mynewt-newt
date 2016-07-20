@@ -316,7 +316,18 @@ func PrintSizes(libs map[string]*PkgSize,
 }
 
 func (t *TargetBuilder) Size() error {
-	return t.App.Size()
+
+	t.PrepBuild()
+
+	fmt.Printf("Size of Application Image: %s\n", t.App.buildName)
+	err := t.App.Size()
+
+	if err == nil {
+		fmt.Printf("Size of Loader Image: %s\n", t.Loader.buildName)
+		err = t.Loader.Size()
+	}
+
+	return err
 }
 
 func (b *Builder) Size() error {

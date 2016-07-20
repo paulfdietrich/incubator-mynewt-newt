@@ -30,10 +30,20 @@ import (
 )
 
 func (t *TargetBuilder) Load() error {
-	return t.App.Load()
+
+	err := t.PrepBuild()
+
+	if err == nil {
+		err = t.App.Load(1)
+	}
+
+	if err == nil {
+		err = t.Loader.Load(0)
+	}
+	return err
 }
 
-func (b *Builder) Load() error {
+func (b *Builder) Load(image_slot int) error {
 	if b.appPkg == nil {
 		return util.NewNewtError("app package not specified")
 	}
@@ -60,10 +70,11 @@ func (b *Builder) Load() error {
 	binBaseName := b.AppBinBasePath()
 	featureString := b.FeatureString()
 
-	downloadCmd := fmt.Sprintf("%s %s %s %s",
-		downloadScript, bspPath, binBaseName, featureString)
+	downloadCmd := fmt.Sprintf("%s %s %s %d %s",
+		downloadScript, bspPath, binBaseName, image_slot, featureString)
 
-	util.StatusMessage(util.VERBOSITY_DEFAULT, "Loading image\n")
+	util.StatusMessage(util.VERBOSITY_DEFAULT,
+		"Loading %s image int slot %d\n", b.buildName, image_slot)
 	util.StatusMessage(util.VERBOSITY_VERBOSE, "Load command: %s\n",
 		downloadCmd)
 	rsp, err := util.ShellCommand(downloadCmd)

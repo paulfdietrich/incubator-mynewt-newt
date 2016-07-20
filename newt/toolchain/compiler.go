@@ -631,18 +631,30 @@ func (c *Compiler) getObjFiles(baseObjFiles []string) string {
 //
 // @return                      (success) The command string.
 func (c *Compiler) CompileBinaryCmd(dstFile string, options map[string]bool,
-	objFiles []string) string {
+	objFiles []string, elfLib string) string {
 
 	objList := c.getObjFiles(util.UniqueStrings(objFiles))
 
 	cmd := c.ccPath + " -o " + dstFile + " " + " " + c.cflagsString()
+
+	//	if elfLib != "" {
+	//		cmd += " -Wl,--whole-archive " + elfLib + " -Wl,--no-whole-archive "
+	//	}
+
 	if c.ldResolveCircularDeps {
 		cmd += " -Wl,--start-group " + objList + " -Wl,--end-group "
 	} else {
 		cmd += " " + objList
 	}
 
+	if elfLib != "" {
+		cmd += " -Wl,--just-symbols=" + elfLib
+	}
+
 	cmd += " " + c.lflagsString()
+
+	/* so we don't get multiple global definitions of the same vartiable */
+	cmd += " -Wl,--warn-common "
 
 	if c.LinkerScript != "" {
 		cmd += " -T " + c.LinkerScript
@@ -662,7 +674,7 @@ func (c *Compiler) CompileBinaryCmd(dstFile string, options map[string]bool,
 //                                  gets generated.
 // @param objFiles              An array of the source .o and .a filenames.
 func (c *Compiler) CompileBinary(dstFile string, options map[string]bool,
-	objFiles []string) error {
+	objFiles []string, elfLib string) error {
 
 	// Make sure the compiler package info is added to the global set.
 	c.ensureLclInfoAdded()
@@ -675,7 +687,12 @@ func (c *Compiler) CompileBinary(dstFile string, options map[string]bool,
 		"Linking %s with input files %s\n",
 		dstFile, objList)
 
-	cmd := c.CompileBinaryCmd(dstFile, options, objFiles)
+	if elfLib != "" {
+		util.StatusMessage(util.VERBOSITY_VERBOSE, "Linking %s with rom image %s\n",
+			dstFile, elfLib)
+	}
+
+	cmd := c.CompileBinaryCmd(dstFile, options, objFiles, elfLib)
 	_, err := util.ShellCommand(cmd)
 	if err != nil {
 		return err
@@ -764,14 +781,14 @@ func (c *Compiler) PrintSize(elfFilename string) (string, error) {
 // @param options               Some build options specifying how the elf file
 //                                  gets generated.
 // @param objFiles              An array of the source .o and .a filenames.
-func (c *Compiler) CompileElf(binFile string, objFiles []string) error {
+func (c *Compiler) CompileElf(binFile string, objFiles []string, elfLib string) error {
 	options := map[string]bool{"mapFile": c.ldMapFile,
 		"listFile": true, "binFile": c.ldBinFile}
 
 	// Make sure the compiler package info is added to the global set.
 	c.ensureLclInfoAdded()
 
-	linkRequired, err := c.depTracker.LinkRequired(binFile, options, objFiles)
+	linkRequired, err := c.depTracker.LinkRequired(binFile, options, objFiles, elfLib)
 	if err != nil {
 		return err
 	}
@@ -779,7 +796,7 @@ func (c *Compiler) CompileElf(binFile string, objFiles []string) error {
 		if err := os.MkdirAll(filepath.Dir(binFile), 0755); err != nil {
 			return util.NewNewtError(err.Error())
 		}
-		err := c.CompileBinary(binFile, options, objFiles)
+		err := c.CompileBinary(binFile, options, objFiles, elfLib)
 		if err != nil {
 			return err
 		}
@@ -794,7 +811,22 @@ func (c *Compiler) CompileElf(binFile string, objFiles []string) error {
 }
 
 func (c *Compiler) RemoveSymbolCmd(symbolName string, libraryFile string) string {
-	val := c.ocPath + " --redefine-sym " + symbolName + "=" + symbolName + "_old " + libraryFile
+	val := c.ocPath + " -N " + symbolName + " " + libraryFile
+	return val
+}
+
+func (c *Compiler) RenameSectionCmd(lib string, oldName string, newName string) string {
+	val := c.ocPath + " --rename-section " + oldName + "=" + newName + " " + lib
+	return val
+}
+
+func (c *Compiler) WeakenSymbolCmd(symbolName string, libraryFile string) string {
+	val := c.ocPath + " -W " + symbolName + " " + libraryFile
+	return val
+}
+
+func (c *Compiler) RenameSymbolCmd(symbolName string, libraryFile string, ext string) string {
+	val := c.ocPath + " --redefine-sym " + symbolName + "=" + symbolName + ext + " " + libraryFile
 	return val
 }
 

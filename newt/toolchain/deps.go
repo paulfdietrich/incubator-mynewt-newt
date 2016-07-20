@@ -281,11 +281,11 @@ func (tracker *DepTracker) ArchiveRequired(archiveFile string,
 //     * One or more source object files has a newer modification time than the
 //       library file.
 func (tracker *DepTracker) LinkRequired(dstFile string,
-	options map[string]bool, objFiles []string) (bool, error) {
+	options map[string]bool, objFiles []string, elfLib string) (bool, error) {
 
 	// If the elf file was previously built with a different set of options, a
 	// rebuild is required.
-	cmd := tracker.compiler.CompileBinaryCmd(dstFile, options, objFiles)
+	cmd := tracker.compiler.CompileBinaryCmd(dstFile, options, objFiles, elfLib)
 	if commandHasChanged(dstFile, cmd) {
 		util.StatusMessage(util.VERBOSITY_VERBOSE, "%s - link required; "+
 			"different command\n", dstFile)

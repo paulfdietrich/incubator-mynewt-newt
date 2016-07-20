@@ -20,8 +20,6 @@
 package builder
 
 import (
-	"fmt"
-
 	"mynewt.apache.org/newt/newt/interfaces"
 	"mynewt.apache.org/newt/newt/pkg"
 	"mynewt.apache.org/newt/newt/project"
@@ -145,19 +143,18 @@ func (t *TargetBuilder) Build() error {
 			return err
 		}
 
-		err = t.Loader.Link()
+		err = t.Loader.Link(t.Bsp.LinkerScript)
 
 		if err != nil {
 			return err
 		}
 
+		util.StatusMessage(util.VERBOSITY_DEFAULT,
+			"Generating Loader Symbol Map\n")
 		err, loader_sm = t.Loader.FetchSymbolMap()
 		if err != nil {
 			return err
 		}
-
-		loader_sm.Dump()
-
 	}
 
 	if err := t.Bsp.Reload(t.App.Features()); err != nil {
@@ -172,38 +169,61 @@ func (t *TargetBuilder) Build() error {
 		return err
 	}
 
+	util.StatusMessage(util.VERBOSITY_DEFAULT,
+		"Generating Application Symbol Map\n")
 	err, app_sm := t.App.FetchSymbolMap()
 	if err != nil {
 		return err
 	}
 
-	app_sm.Dump()
-
-	fmt.Printf("Combining maps into the overlap\n ")
-
+	util.StatusMessage(util.VERBOSITY_DEFAULT,
+		"Merging Symbol Maps\n")
 	union_sm := IdenticalUnion(loader_sm, app_sm)
 
-	union_sm.Dump()
+	/* handle special symbols */
+	union_sm.Remove("Reset_Handler")
 
-	/* remove the symbols from the .a files in the app files */
+	/* slurp in all symbols from the actual loader binary */
+	err, loader_elf_sm := t.Loader.ParseObjectElf()
+	if err != nil {
+		return err
+	}
 
+	/* remove the symbols from the .a files in the app files, but only if
+	 * they are actually found in the elf file (not just the union) */
 	for name, info1 := range *union_sm {
-		fmt.Printf("Removing symbol %s from %s Library\n", name, info1.bpkg)
-		err := t.App.RemoveSymbol(&info1)
-		if err != nil {
-			fmt.Printf("Error Removing symbol %s from app Library\n", name, err.Error())
+		if _, found := loader_elf_sm.Find(name); found {
+			err := t.App.RemoveSymbol(&info1, "_xxx")
+			if err != nil {
+				return err
+			}
 		}
 	}
 
-	/* copy the .elf from the loader */
-	/* slurp in all symbols */
-	/* go through each symbol in elf copy */
-	/* drop if not in union */
+	/* copy the .elf from the loader since we want to preseve the
+	 * original one for debug and download */
+	/* TODO */
 
-	/* go through each symbol in the union... */
-	/* drop from apps libraries */
+	/* go through each symbol in elf file and rename them if they are not in
+	 * the union (meaining that we don't want to export them to the app
+	 * as we could get a duplicate symbol during link). We rename them
+	 * instead of deleting them as there are a few symbols that we will
+	 * need in the linker (like bss ranges etc). */
+	for name, info1 := range *loader_elf_sm {
+		if _, found := (*union_sm)[name]; !found {
+			t.Loader.RemoveSymbol(&info1, "_rom")
+		}
+	}
 
-	err = t.App.Link()
+	if t.Bsp.Part2LinkerScript == "" {
+		return util.NewNewtError("Must specify Part2 Linker in Bsp to support Split images")
+	}
+
+	// link the loader elf into the application. This has to be treated as
+	// special (not just another object) because we have to link the whole
+	// library into it
+	t.App.LinkElf = t.Loader.AppElfPath()
+	err = t.App.Link(t.Bsp.Part2LinkerScript)
 
 	if err != nil {
 		return err

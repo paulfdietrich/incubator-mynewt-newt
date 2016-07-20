@@ -23,14 +23,19 @@ package builder
 
 import (
 	"fmt"
+	"strings"
+
+	"mynewt.apache.org/newt/util"
 )
 
 type SymbolInfo struct {
-	bpkg string
-	name string
-	code string
-	size int
-	loc  int
+	bpkg    string
+	name    string
+	code    string
+	section string
+	ext     string
+	size    int
+	loc     int
 }
 
 type SymbolMap map[string]SymbolInfo
@@ -56,10 +61,9 @@ func IdenticalUnion(s1 *SymbolMap, s2 *SymbolMap) *SymbolMap {
 	for name, info1 := range *s1 {
 		if info2, ok := (*s2)[name]; ok {
 			/* compare to info 1 */
-			if info1.code == info2.code && info1.size == info2.size && info1.bpkg == info2.bpkg {
+			if info1.code == info2.code &&
+				info1.size == info2.size && info1.bpkg == info2.bpkg {
 				s3.Add(info1)
-			} else {
-				fmt.Printf("Non matching symbols %s (%s,%s) (%d,%d), (%s,%s)\n", name, info1.code, info2.code, info1.size, info2.size, info1.bpkg, info2.bpkg)
 			}
 		}
 	}
@@ -75,11 +79,54 @@ func (s *SymbolMap) Iterate(iter SymbolMapIterator) {
 }
 
 func dumpSi(si *SymbolInfo) {
-	fmt.Printf("  %s (%s) -- %d (%d) from %s\n", (*si).name, (*si).code, (*si).size, (*si).loc, (*si).bpkg)
+	fmt.Printf("  %s(%s) (%s) -- (%s) %d (%d) from %s\n",
+		(*si).name, (*si).ext, (*si).code, (*si).section,
+		(*si).size, (*si).loc, (*si).bpkg)
 }
 
 func (si *SymbolInfo) Dump() {
 	dumpSi(si)
+}
+
+func (si *SymbolInfo) IsLocal() bool {
+	val := (*si).code[:1]
+
+	if val == "l" {
+		return true
+	}
+	return false
+}
+
+func (si *SymbolInfo) IsWeak() bool {
+	val := (*si).code[1:2]
+
+	if val == "w" {
+		return true
+	}
+	return false
+}
+
+func (si *SymbolInfo) IsDebug() bool {
+	val := (*si).code[5:6]
+
+	if val == "d" {
+		return true
+	}
+	return false
+}
+
+func (si *SymbolInfo) IsSection(section string) bool {
+	val := (*si).section
+	return strings.HasPrefix(val, section)
+}
+
+func (si *SymbolInfo) IsFile() bool {
+	val := (*si).code[6:7]
+
+	if val == "f" {
+		return true
+	}
+	return false
 }
 
 func (s *SymbolMap) Dump() {
@@ -91,7 +138,39 @@ func (s *SymbolMap) Dump() {
 func (s1 *SymbolMap) Merge(s2 *SymbolMap) *SymbolMap {
 
 	for k, v := range *s2 {
-		(*s1)[k] = v
+
+		if val, ok := (*s1)[k]; ok {
+			/* We already have this in the MAP */
+			if val.IsWeak() && !v.IsWeak() {
+				(*s1)[k] = v
+			} else if v.IsWeak() && !val.IsWeak() {
+				/* nothing to do here as this is OK not to replace */
+			} else if v.IsLocal() && val.IsLocal() {
+				/* two locals that must conflict with name */
+				/* have to have separate instances of these */
+				util.StatusMessage(util.VERBOSITY_QUIET,
+					"Local Symbol Conflict: %s from packages %s and %s ",
+					v.name, v.bpkg, val.bpkg)
+				(*s2).Remove(k)
+			} else {
+				util.StatusMessage(util.VERBOSITY_QUIET,
+					"Global Symbol Conflict: %s from packages %s and %s ",
+					v.name, v.bpkg, val.bpkg)
+			}
+		} else {
+			(*s1)[k] = v
+		}
+
 	}
 	return s1
+}
+
+func (s *SymbolMap) Remove(name string) {
+	delete(*s, name)
+}
+
+/* Returns true if the symbol is present in the symbol map */
+func (s *SymbolMap) Find(name string) (*SymbolInfo, bool) {
+	val, ok := (*s)[name]
+	return &val, ok
 }

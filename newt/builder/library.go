@@ -26,6 +26,7 @@ package builder
 
 import (
 	"bytes"
+	"path/filepath"
 	"regexp"
 	"strconv"
 
@@ -58,6 +59,8 @@ func ParseObjectLine(line string, r *regexp.Regexp) (error, *SymbolInfo) {
 	data := answer[0]
 
 	if len(data) != 6 {
+		util.StatusMessage(util.VERBOSITY_DEFAULT,
+			"Not enough content in object file line --- %s", line)
 		return nil, nil
 	}
 
@@ -68,6 +71,8 @@ func ParseObjectLine(line string, r *regexp.Regexp) (error, *SymbolInfo) {
 	v, err := strconv.ParseUint(data[1], 16, 32)
 
 	if err != nil {
+		util.StatusMessage(util.VERBOSITY_DEFAULT,
+			"Could not convert location from object file line --- %s", line)
 		return nil, nil
 	}
 
@@ -76,34 +81,110 @@ func ParseObjectLine(line string, r *regexp.Regexp) (error, *SymbolInfo) {
 	v, err = strconv.ParseUint(data[4], 16, 32)
 
 	if err != nil {
+		util.StatusMessage(util.VERBOSITY_DEFAULT,
+			"Could not convert size form object file line --- %s", line)
 		return nil, nil
 	}
 
 	si.size = int(v)
 	si.code = data[2]
+	si.section = data[3]
 
 	return nil, si
 }
 
-func (b *Builder) RemoveSymbol(si *SymbolInfo) error {
+func (b *Builder) RemoveSymbol(si *SymbolInfo, ext string) error {
+	c, err := b.target.NewCompiler(b.AppElfPath())
+
+	if err != nil {
+		return err
+	}
+	libraryFile := b.ArchivePath(si.bpkg)
+
+	if (*si).ext == ".elf" {
+		libraryFile = b.AppElfPath()
+	}
+	cmd := c.RenameSymbolCmd(si.name, libraryFile, ext)
+
+	_, err = util.ShellCommand(cmd)
+	return err
+}
+
+func (b *Builder) RenameTextSection() error {
 	c, err := b.target.NewCompiler(b.AppElfPath())
 
 	if err != nil {
 		return err
 	}
 
-	libraryFile := b.ArchivePath(si.bpkg)
-	cmd := c.RemoveSymbolCmd(si.name, libraryFile)
+	libraryFile := b.AppElfPath()
+
+	cmd := c.RenameSectionCmd(libraryFile, ".text", ".rom")
 
 	_, err = util.ShellCommand(cmd)
 	return err
 }
 
+func (b *Builder) RenameDataSection() error {
+	c, err := b.target.NewCompiler(b.AppElfPath())
+
+	if err != nil {
+		return err
+	}
+
+	libraryFile := b.AppElfPath()
+
+	cmd := c.RenameSectionCmd(libraryFile, ".data", ".data_orig")
+
+	_, err = util.ShellCommand(cmd)
+	return err
+}
+
+func (b *Builder) WeakenSymbol(si *SymbolInfo) error {
+	c, err := b.target.NewCompiler(b.AppElfPath())
+
+	if err != nil {
+		return err
+	}
+	libraryFile := b.ArchivePath(si.bpkg)
+
+	if (*si).ext == ".elf" {
+		libraryFile = b.AppElfPath()
+	}
+
+	cmd := c.WeakenSymbolCmd(si.name, libraryFile)
+
+	_, err = util.ShellCommand(cmd)
+	return err
+}
+
+func getParseRexeg() (error, *regexp.Regexp) {
+	r, err := regexp.Compile("^([0-9A-Fa-f]+)[\t ]+([lgu! ][w ][C ][W ][Ii ][Dd ][FfO ])[\t ]+([^\t\n\f\r ]+)[\t ]+([0-9a-fA-F]+)[\t ]([^\t\n\f\r ]+)")
+
+	if err != nil {
+		return err, nil
+	}
+
+	return nil, r
+}
+
 func (b *Builder) ParseObjectLibrary(bp *BuildPackage) (error, *SymbolMap) {
 
 	file := b.ArchivePath(bp.Name())
+	return b.parseObjectLibraryFile(bp, file, true)
+}
+
+func (b *Builder) ParseObjectElf() (error, *SymbolMap) {
+
+	file := b.AppElfPath()
+	return b.parseObjectLibraryFile(nil, file, false)
+}
+
+func (b *Builder) parseObjectLibraryFile(bp *BuildPackage, file string, textDataOnly bool) (error, *SymbolMap) {
 
 	c, err := b.target.NewCompiler(b.AppElfPath())
+
+	ext := filepath.Ext(file)
 
 	if err != nil {
 		return err, nil
@@ -119,7 +200,7 @@ func (b *Builder) ParseObjectLibrary(bp *BuildPackage) (error, *SymbolMap) {
 
 	buffer := bytes.NewBuffer(out)
 
-	r, err := regexp.Compile("^([0-9A-Fa-f]+)[\t ]+([lgu! ][w ][C ][W ][Ii ][Dd ][FfO ])[\t ]+([^\t\n\f\r ]+)[\t ]+([0-9a-fA-F]+)[\t ]([^\t\n\f\r ]+)")
+	err, r := getParseRexeg()
 
 	if err != nil {
 		return err, nil
@@ -133,11 +214,46 @@ func (b *Builder) ParseObjectLibrary(bp *BuildPackage) (error, *SymbolMap) {
 		err, si := ParseObjectLine(line, r)
 
 		if err == nil && si != nil {
-			if (*si).size != 0 {
-				/* assign the library and add to the list */
+
+			/* assign the library */
+			if bp != nil {
 				(*si).bpkg = bp.Name()
-				sm.Add(*si)
+			} else {
+				(*si).bpkg = "elf"
 			}
+
+			/*  discard undefined */
+			if (*si).IsSection("*UND*") {
+				continue
+			}
+
+			/* discard debug symbols */
+			if (*si).IsDebug() {
+				continue
+			}
+
+			if (*si).IsFile() {
+				continue
+			}
+
+			/* if we are looking for text and data only, do a special check */
+			if textDataOnly {
+				include := (*si).IsSection(".bss") ||
+					(*si).IsSection(".text") ||
+					(*si).IsSection(".data") ||
+					(*si).IsSection("*COM*") ||
+					(*si).IsSection(".rodata")
+
+				if !include {
+					continue
+				}
+			}
+
+			/* add the symbol to the map */
+			(*si).ext = ext
+			sm.Add(*si)
+			util.StatusMessage(util.VERBOSITY_VERBOSE,
+				"Keeping Symbol %s in package %s\n", (*si).name, (*si).bpkg)
 		}
 	}
 

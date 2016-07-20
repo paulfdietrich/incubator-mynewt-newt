@@ -44,6 +44,7 @@ type Builder struct {
 	target           *TargetBuilder
 	linkerScript     string
 	buildName        string
+	LinkElf          string
 }
 
 func NewBuilder(t *TargetBuilder, buildName string) (*Builder, error) {
@@ -62,6 +63,7 @@ func (b *Builder) Init(t *TargetBuilder) error {
 	b.Packages = map[*pkg.LocalPackage]*BuildPackage{}
 	b.features = map[string]bool{}
 	b.apis = map[string]*BuildPackage{}
+	b.LinkElf = ""
 
 	return nil
 }
@@ -298,7 +300,7 @@ func (b *Builder) buildPackage(bpkg *BuildPackage) error {
 	return nil
 }
 
-func (b *Builder) link(elfName string) error {
+func (b *Builder) link(elfName string, linkerScript string) error {
 	c, err := b.newCompiler(b.appPkg, b.PkgBinDir(elfName))
 	if err != nil {
 		return err
@@ -312,10 +314,10 @@ func (b *Builder) link(elfName string) error {
 		}
 	}
 
-	if b.linkerScript != "" {
-		c.LinkerScript = b.target.Bsp.BasePath() + b.linkerScript
+	if linkerScript != "" {
+		c.LinkerScript = b.target.Bsp.BasePath() + linkerScript
 	}
-	err = c.CompileElf(elfName, pkgNames)
+	err = c.CompileElf(elfName, pkgNames, b.LinkElf)
 	if err != nil {
 		return err
 	}
@@ -491,8 +493,8 @@ func (b *Builder) Build() error {
 	return nil
 }
 
-func (b *Builder) Link() error {
-	if err := b.link(b.AppElfPath()); err != nil {
+func (b *Builder) Link(linkerScript string) error {
+	if err := b.link(b.AppElfPath(), linkerScript); err != nil {
 		return err
 	}
 	return nil
@@ -536,7 +538,7 @@ func (b *Builder) Test(p *pkg.LocalPackage) error {
 	}
 
 	testFilename := b.TestExePath(p.Name())
-	err = b.link(testFilename)
+	err = b.link(testFilename, "")
 	if err != nil {
 		return err
 	}
@@ -571,10 +573,9 @@ func (b *Builder) FetchSymbolMap() (error, *SymbolMap) {
 	for _, value := range b.Packages {
 		err, sm := b.ParseObjectLibrary(value)
 		if err == nil {
-			fmt.Printf("Size of %s Loader Map %d\n", len(*sm))
+			util.StatusMessage(util.VERBOSITY_VERBOSE,
+				"Size of %s Loader Map %d\n", value.Name(), len(*sm))
 			loader_sm.Merge(sm)
-		} else {
-			fmt.Printf("Error Reading file %s\n", value.Name())
 		}
 	}
 

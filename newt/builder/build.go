@@ -575,7 +575,10 @@ func (b *Builder) FetchSymbolMap() (error, *SymbolMap) {
 		if err == nil {
 			util.StatusMessage(util.VERBOSITY_VERBOSE,
 				"Size of %s Loader Map %d\n", value.Name(), len(*sm))
-			loader_sm.Merge(sm)
+			loader_sm, err = loader_sm.Merge(sm)
+			if err != nil {
+				return err, nil
+			}
 		}
 	}
 

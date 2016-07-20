@@ -135,7 +135,7 @@ func (s *SymbolMap) Dump() {
 
 // Merge - merges given maps into 1 map
 // values will be overridden by last matching key - value
-func (s1 *SymbolMap) Merge(s2 *SymbolMap) *SymbolMap {
+func (s1 *SymbolMap) Merge(s2 *SymbolMap) (*SymbolMap, error) {
 
 	for k, v := range *s2 {
 
@@ -156,13 +156,14 @@ func (s1 *SymbolMap) Merge(s2 *SymbolMap) *SymbolMap {
 				util.StatusMessage(util.VERBOSITY_QUIET,
 					"Global Symbol Conflict: %s from packages %s and %s \n",
 					v.name, v.bpkg, val.bpkg)
+				return nil, util.NewNewtError("Global Symbol Conflict")
 			}
 		} else {
 			(*s1)[k] = v
 		}
 
 	}
-	return s1
+	return s1, nil
 }
 
 func (s *SymbolMap) Remove(name string) {

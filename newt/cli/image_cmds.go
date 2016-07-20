@@ -55,13 +55,13 @@ func createImageRunCmd(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	image, err := image.NewImage(b.App)
+	app_image, err := image.NewImage(b.App)
 	if err != nil {
 		NewtUsage(cmd, err)
 		return
 	}
 
-	err = image.SetVersion(args[1])
+	err = app_image.SetVersion(args[1])
 	if err != nil {
 		NewtUsage(cmd, err)
 	}
@@ -76,25 +76,67 @@ func createImageRunCmd(cmd *cobra.Command, args []string) {
 			}
 			keyId = uint8(keyId64)
 		}
-		err = image.SetSigningKey(args[2], keyId)
+		err = app_image.SetSigningKey(args[2], keyId)
 		if err != nil {
 			NewtUsage(cmd, err)
 		}
 	}
 
-	err = image.Generate()
+	err = app_image.Generate()
 	if err != nil {
 		NewtUsage(cmd, err)
 	}
 
-	err = image.CreateManifest(t)
+	err = app_image.CreateManifest(t)
 	if err != nil {
 		NewtUsage(cmd, err)
 	}
 	util.StatusMessage(util.VERBOSITY_DEFAULT,
-		"App image succesfully generated: %s\n", image.TargetImg())
+		"App image succesfully generated: %s\n", app_image.TargetImg())
 	util.StatusMessage(util.VERBOSITY_DEFAULT, "Build manifest: %s\n",
-		image.ManifestFile())
+		app_image.ManifestFile())
+
+	loader_image, err := image.NewImage(b.Loader)
+	if err != nil {
+		NewtUsage(cmd, err)
+		return
+	}
+
+	err = loader_image.SetVersion(args[1])
+	if err != nil {
+		NewtUsage(cmd, err)
+	}
+
+	if len(args) > 2 {
+		var keyId uint8 = 0
+		if len(args) > 3 {
+			keyId64, err := strconv.ParseUint(args[3], 10, 8)
+			if err != nil {
+				NewtUsage(cmd,
+					util.NewNewtError("Key ID must be between 0-255"))
+			}
+			keyId = uint8(keyId64)
+		}
+		err = loader_image.SetSigningKey(args[2], keyId)
+		if err != nil {
+			NewtUsage(cmd, err)
+		}
+	}
+
+	err = loader_image.Generate()
+	if err != nil {
+		NewtUsage(cmd, err)
+	}
+
+	err = loader_image.CreateManifest(t)
+	if err != nil {
+		NewtUsage(cmd, err)
+	}
+	util.StatusMessage(util.VERBOSITY_DEFAULT,
+		"Loader image succesfully generated: %s\n", loader_image.TargetImg())
+	util.StatusMessage(util.VERBOSITY_DEFAULT, "Build manifest: %s\n",
+		loader_image.ManifestFile())
+
 }
 
 func AddImageCommands(cmd *cobra.Command) {

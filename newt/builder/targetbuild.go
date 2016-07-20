@@ -195,7 +195,7 @@ func (t *TargetBuilder) Build() error {
 		"Removing Symbols from Application\n")
 	for name, info1 := range *union_sm {
 		if _, found := loader_elf_sm.Find(name); found {
-			err := t.App.RemoveSymbol(&info1, "_xxx")
+			err := t.App.RenameSymbol(&info1, "_xxx")
 			if err != nil {
 				return err
 			}
@@ -216,7 +216,7 @@ func (t *TargetBuilder) Build() error {
 		"Removing Symbols from Loader\n")
 	for name, info1 := range *loader_elf_sm {
 		if _, found := (*union_sm)[name]; !found {
-			t.Loader.RemoveSymbol(&info1, "_loader")
+			t.Loader.RenameSymbol(&info1, "_loader")
 		}
 	}
 

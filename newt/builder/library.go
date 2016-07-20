@@ -93,7 +93,7 @@ func ParseObjectLine(line string, r *regexp.Regexp) (error, *SymbolInfo) {
 	return nil, si
 }
 
-func (b *Builder) RemoveSymbol(si *SymbolInfo, ext string) error {
+func (b *Builder) RenameSymbol(si *SymbolInfo, ext string) error {
 	c, err := b.target.NewCompiler(b.AppElfPath())
 
 	if err != nil {

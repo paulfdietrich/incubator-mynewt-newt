@@ -148,13 +148,13 @@ func (s1 *SymbolMap) Merge(s2 *SymbolMap) *SymbolMap {
 			} else if v.IsLocal() && val.IsLocal() {
 				/* two locals that must conflict with name */
 				/* have to have separate instances of these */
-				util.StatusMessage(util.VERBOSITY_QUIET,
-					"Local Symbol Conflict: %s from packages %s and %s ",
+				util.StatusMessage(util.VERBOSITY_VERBOSE,
+					"Local Symbol Conflict: %s from packages %s and %s \n",
 					v.name, v.bpkg, val.bpkg)
 				(*s2).Remove(k)
 			} else {
 				util.StatusMessage(util.VERBOSITY_QUIET,
-					"Global Symbol Conflict: %s from packages %s and %s ",
+					"Global Symbol Conflict: %s from packages %s and %s \n",
 					v.name, v.bpkg, val.bpkg)
 			}
 		} else {

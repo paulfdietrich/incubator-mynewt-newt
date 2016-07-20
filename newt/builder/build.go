@@ -29,6 +29,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 
 	"mynewt.apache.org/newt/newt/pkg"
+	"mynewt.apache.org/newt/newt/target"
 	"mynewt.apache.org/newt/newt/toolchain"
 	"mynewt.apache.org/newt/util"
 )
@@ -583,4 +584,8 @@ func (b *Builder) FetchSymbolMap() (error, *SymbolMap) {
 	}
 
 	return nil, loader_sm
+}
+
+func (b *Builder) GetTarget() *target.Target {
+	return b.target.GetTarget()
 }

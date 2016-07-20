@@ -191,6 +191,8 @@ func (t *TargetBuilder) Build() error {
 
 	/* remove the symbols from the .a files in the app files, but only if
 	 * they are actually found in the elf file (not just the union) */
+	util.StatusMessage(util.VERBOSITY_DEFAULT,
+		"Removing Symbols from Application\n")
 	for name, info1 := range *union_sm {
 		if _, found := loader_elf_sm.Find(name); found {
 			err := t.App.RemoveSymbol(&info1, "_xxx")
@@ -209,6 +211,9 @@ func (t *TargetBuilder) Build() error {
 	 * as we could get a duplicate symbol during link). We rename them
 	 * instead of deleting them as there are a few symbols that we will
 	 * need in the linker (like bss ranges etc). */
+
+	util.StatusMessage(util.VERBOSITY_DEFAULT,
+		"Removing Symbols from Loader\n")
 	for name, info1 := range *loader_elf_sm {
 		if _, found := (*union_sm)[name]; !found {
 			t.Loader.RemoveSymbol(&info1, "_loader")
@@ -262,4 +267,8 @@ func (t *TargetBuilder) Clean() error {
 		err = t.Loader.Clean()
 	}
 	return err
+}
+
+func (t *TargetBuilder) GetTarget() *target.Target {
+	return (*t).target
 }

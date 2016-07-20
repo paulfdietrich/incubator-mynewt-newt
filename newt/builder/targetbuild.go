@@ -211,7 +211,7 @@ func (t *TargetBuilder) Build() error {
 	 * need in the linker (like bss ranges etc). */
 	for name, info1 := range *loader_elf_sm {
 		if _, found := (*union_sm)[name]; !found {
-			t.Loader.RemoveSymbol(&info1, "_rom")
+			t.Loader.RemoveSymbol(&info1, "_loader")
 		}
 	}
 

@@ -59,24 +59,41 @@ func runRunCmd(cmd *cobra.Command, args []string) {
 	 * downloading an older version.
 	 */
 	if len(args) > 1 {
-		image, err := image.NewImage(b.App)
+		app_image, err := image.NewImage(b.App, false)
 		if err != nil {
 			NewtUsage(cmd, err)
 		}
-		err = image.SetVersion(args[1])
+		err = app_image.SetVersion(args[1])
 		if err != nil {
 			NewtUsage(cmd, err)
 		}
-		err = image.Generate()
+		err = app_image.Generate()
 		if err != nil {
 			NewtUsage(cmd, err)
 		}
-		err = image.CreateManifest(t)
+		err = app_image.CreateManifest(t)
+		if err != nil {
+			NewtUsage(cmd, err)
+		}
+		loader_image, err := image.NewImage(b.App, false)
+		if err != nil {
+			NewtUsage(cmd, err)
+		}
+		err = loader_image.SetVersion(args[1])
+		if err != nil {
+			NewtUsage(cmd, err)
+		}
+		err = loader_image.Generate()
+		if err != nil {
+			NewtUsage(cmd, err)
+		}
+		err = loader_image.CreateManifest(t)
 		if err != nil {
 			NewtUsage(cmd, err)
 		}
 	} else {
 		os.Remove(b.App.AppImgPath())
+		os.Remove(b.Loader.AppImgPath())
 	}
 	err = b.Load()
 	if err != nil {

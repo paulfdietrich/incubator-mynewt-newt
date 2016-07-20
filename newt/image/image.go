@@ -65,6 +65,7 @@ type Image struct {
 	version      ImageVersion
 	signingRSA   *rsa.PrivateKey
 	signingEC    *ecdsa.PrivateKey
+	bootable     bool
 	keyId        uint8
 	hash         []byte
 }
@@ -104,6 +105,7 @@ const (
 	IMAGE_F_SHA256                = 0x00000002 /* Image contains hash TLV */
 	IMAGE_F_PKCS15_RSA2048_SHA256 = 0x00000004 /* PKCS15 w/RSA2048 and SHA256 */
 	IMAGE_F_ECDSA224_SHA256       = 0x00000008 /* ECDSA224 over SHA256 */
+	IMAGE_F_NON_BOOTABLE          = 0x00000010 /* non bootable image */
 )
 
 /*
@@ -136,7 +138,7 @@ type ECDSASig struct {
 	S *big.Int
 }
 
-func NewImage(b *builder.Builder) (*Image, error) {
+func NewImage(b *builder.Builder, bootable bool) (*Image, error) {
 	image := &Image{
 		builder: b,
 	}
@@ -144,6 +146,7 @@ func NewImage(b *builder.Builder) (*Image, error) {
 	image.sourceBin = b.AppElfPath() + ".bin"
 	image.targetImg = b.AppImgPath()
 	image.manifestFile = b.AppPath() + "manifest.json"
+	image.bootable = bootable
 	return image, nil
 }
 
@@ -298,6 +301,10 @@ func (image *Image) Generate() error {
 	} else {
 		hdr.TlvSz = 4 + 32
 		hdr.Flags = IMAGE_F_SHA256
+	}
+
+	if !image.bootable {
+		hdr.Flags |= IMAGE_F_NON_BOOTABLE
 	}
 
 	err = binary.Write(imgFile, binary.LittleEndian, hdr)

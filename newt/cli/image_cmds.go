@@ -55,7 +55,7 @@ func createImageRunCmd(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	app_image, err := image.NewImage(b.App)
+	app_image, err := image.NewImage(b.App, false)
 	if err != nil {
 		NewtUsage(cmd, err)
 		return
@@ -96,7 +96,7 @@ func createImageRunCmd(cmd *cobra.Command, args []string) {
 	util.StatusMessage(util.VERBOSITY_DEFAULT, "Build manifest: %s\n",
 		app_image.ManifestFile())
 
-	loader_image, err := image.NewImage(b.Loader)
+	loader_image, err := image.NewImage(b.Loader, true)
 	if err != nil {
 		NewtUsage(cmd, err)
 		return

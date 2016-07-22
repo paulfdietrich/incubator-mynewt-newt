@@ -95,7 +95,12 @@ func (b *Builder) Load(image_slot int) error {
 
 func (t *TargetBuilder) Debug() error {
 	t.PrepBuild()
-	return t.Loader.Debug()
+
+	if t.Loader != nil {
+		return t.Loader.Debug()
+	} else {
+		return t.App.Debug()
+	}
 }
 
 func (b *Builder) Debug() error {

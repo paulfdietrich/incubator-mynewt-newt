@@ -58,13 +58,20 @@ func runRunCmd(cmd *cobra.Command, args []string) {
 	 * downloading an older version.
 	 */
 	if len(args) > 1 {
-		err = CreateImage(b.App, args[1], "", 0, false)
-		if err != nil {
-			NewtUsage(cmd, err)
-		}
-		err = CreateImage(b.Loader, args[1], "", 0, true)
-		if err != nil {
-			NewtUsage(cmd, err)
+		if b.Loader == nil {
+			err = CreateImage(b.App, args[1], "", 0, true)
+			if err != nil {
+				NewtUsage(cmd, err)
+			}
+		} else {
+			err = CreateImage(b.App, args[1], "", 0, false)
+			if err != nil {
+				NewtUsage(cmd, err)
+			}
+			err = CreateImage(b.Loader, args[1], "", 0, true)
+			if err != nil {
+				NewtUsage(cmd, err)
+			}
 		}
 	} else {
 		os.Remove(b.App.AppImgPath())

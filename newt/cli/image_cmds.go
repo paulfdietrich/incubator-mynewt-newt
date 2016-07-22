@@ -110,18 +110,24 @@ func createImageRunCmd(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	err = CreateImage(b.App, version, keystr, keyId, false)
-	if err != nil {
-		NewtUsage(cmd, err)
-		return
+	if b.Loader == nil {
+		err = CreateImage(b.App, version, keystr, keyId, true)
+		if err != nil {
+			NewtUsage(cmd, err)
+			return
+		}
+	} else {
+		err = CreateImage(b.App, version, keystr, keyId, false)
+		if err != nil {
+			NewtUsage(cmd, err)
+			return
+		}
+		err = CreateImage(b.Loader, version, keystr, keyId, true)
+		if err != nil {
+			NewtUsage(cmd, err)
+			return
+		}
 	}
-
-	err = CreateImage(b.Loader, version, keystr, keyId, true)
-	if err != nil {
-		NewtUsage(cmd, err)
-		return
-	}
-
 }
 
 func AddImageCommands(cmd *cobra.Command) {

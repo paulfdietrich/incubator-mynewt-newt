@@ -19,7 +19,7 @@
 
 /* this file maintains a list of all the symbols from a */
 
-package builder
+package symbol
 
 import (
 	"fmt"
@@ -29,13 +29,13 @@ import (
 )
 
 type SymbolInfo struct {
-	bpkg    string
-	name    string
-	code    string
-	section string
-	ext     string
-	size    int
-	loc     int
+	Bpkg    string
+	Name    string
+	Code    string
+	Section string
+	Ext     string
+	Size    int
+	Loc     int
 }
 
 type SymbolMap map[string]SymbolInfo
@@ -51,18 +51,25 @@ func NewSymbolInfo() *SymbolInfo {
 }
 
 func (s *SymbolMap) Add(info SymbolInfo) {
-	(*s)[info.name] = info
+	(*s)[info.Name] = info
 }
 
-func IdenticalUnion(s1 *SymbolMap, s2 *SymbolMap) *SymbolMap {
+func IdenticalUnion(s1 *SymbolMap, s2 *SymbolMap, comparePkg bool) *SymbolMap {
 	s3 := NewSymbolMap()
 	/* look through all symbols in S1 and if they are in s1,
 	 * add to new map s3 */
 	for name, info1 := range *s1 {
 		if info2, ok := (*s2)[name]; ok {
+			var pkg bool
+
+			if comparePkg {
+				pkg = info1.Bpkg == info2.Bpkg
+			} else {
+				pkg = true
+			}
 			/* compare to info 1 */
-			if info1.code == info2.code &&
-				info1.size == info2.size && info1.bpkg == info2.bpkg {
+			if info1.Code == info2.Code &&
+				info1.Size == info2.Size && pkg {
 				s3.Add(info1)
 			}
 		}
@@ -80,8 +87,8 @@ func (s *SymbolMap) Iterate(iter SymbolMapIterator) {
 
 func dumpSi(si *SymbolInfo) {
 	fmt.Printf("  %s(%s) (%s) -- (%s) %d (%d) from %s\n",
-		(*si).name, (*si).ext, (*si).code, (*si).section,
-		(*si).size, (*si).loc, (*si).bpkg)
+		(*si).Name, (*si).Ext, (*si).Code, (*si).Section,
+		(*si).Size, (*si).Loc, (*si).Bpkg)
 }
 
 func (si *SymbolInfo) Dump() {
@@ -89,7 +96,7 @@ func (si *SymbolInfo) Dump() {
 }
 
 func (si *SymbolInfo) IsLocal() bool {
-	val := (*si).code[:1]
+	val := (*si).Code[:1]
 
 	if val == "l" {
 		return true
@@ -98,7 +105,7 @@ func (si *SymbolInfo) IsLocal() bool {
 }
 
 func (si *SymbolInfo) IsWeak() bool {
-	val := (*si).code[1:2]
+	val := (*si).Code[1:2]
 
 	if val == "w" {
 		return true
@@ -107,7 +114,7 @@ func (si *SymbolInfo) IsWeak() bool {
 }
 
 func (si *SymbolInfo) IsDebug() bool {
-	val := (*si).code[5:6]
+	val := (*si).Code[5:6]
 
 	if val == "d" {
 		return true
@@ -116,12 +123,12 @@ func (si *SymbolInfo) IsDebug() bool {
 }
 
 func (si *SymbolInfo) IsSection(section string) bool {
-	val := (*si).section
+	val := (*si).Section
 	return strings.HasPrefix(val, section)
 }
 
 func (si *SymbolInfo) IsFile() bool {
-	val := (*si).code[6:7]
+	val := (*si).Code[6:7]
 
 	if val == "f" {
 		return true
@@ -150,12 +157,12 @@ func (s1 *SymbolMap) Merge(s2 *SymbolMap) (*SymbolMap, error) {
 				/* have to have separate instances of these */
 				util.StatusMessage(util.VERBOSITY_VERBOSE,
 					"Local Symbol Conflict: %s from packages %s and %s \n",
-					v.name, v.bpkg, val.bpkg)
+					v.Name, v.Bpkg, val.Bpkg)
 				(*s2).Remove(k)
 			} else {
 				util.StatusMessage(util.VERBOSITY_QUIET,
 					"Global Symbol Conflict: %s from packages %s and %s \n",
-					v.name, v.bpkg, val.bpkg)
+					v.Name, v.Bpkg, val.Bpkg)
 				return nil, util.NewNewtError("Global Symbol Conflict")
 			}
 		} else {

@@ -33,13 +33,19 @@ func (t *TargetBuilder) Load() error {
 
 	err := t.PrepBuild()
 
-	if err == nil {
-		err = t.App.Load(1)
+	if err != nil {
+		return err
 	}
 
-	if err == nil {
-		err = t.Loader.Load(0)
+	if t.Loader != nil {
+		err = t.App.Load(1)
+		if err == nil {
+			err = t.Loader.Load(0)
+		}
+	} else {
+		err = t.App.Load(0)
 	}
+
 	return err
 }
 

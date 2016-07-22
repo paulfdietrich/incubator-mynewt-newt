@@ -33,6 +33,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 
 	"mynewt.apache.org/newt/newt/newtutil"
+	"mynewt.apache.org/newt/newt/symbol"
 	"mynewt.apache.org/newt/util"
 	"mynewt.apache.org/newt/viper"
 )
@@ -810,21 +811,6 @@ func (c *Compiler) CompileElf(binFile string, objFiles []string, elfLib string) 
 	return nil
 }
 
-func (c *Compiler) RemoveSymbolCmd(symbolName string, libraryFile string) string {
-	val := c.ocPath + " -N " + symbolName + " " + libraryFile
-	return val
-}
-
-func (c *Compiler) RenameSectionCmd(lib string, oldName string, newName string) string {
-	val := c.ocPath + " --rename-section " + oldName + "=" + newName + " " + lib
-	return val
-}
-
-func (c *Compiler) WeakenSymbolCmd(symbolName string, libraryFile string) string {
-	val := c.ocPath + " -W " + symbolName + " " + libraryFile
-	return val
-}
-
 func (c *Compiler) RenameSymbolCmd(symbolName string, libraryFile string, ext string) string {
 	val := c.ocPath + " --redefine-sym " + symbolName + "=" + symbolName + ext + " " + libraryFile
 	return val
@@ -832,6 +818,19 @@ func (c *Compiler) RenameSymbolCmd(symbolName string, libraryFile string, ext st
 
 func (c *Compiler) ParseLibraryCmd(libraryFile string) string {
 	val := c.odPath + " -t " + libraryFile
+	return val
+}
+
+func (c *Compiler) CopySymbolsCmd(infile string, outfile string, sm *symbol.SymbolMap) string {
+
+	val := c.ocPath + " -S "
+
+	for symbol, _ := range *sm {
+		val += " -K " + symbol
+	}
+
+	val += " " + infile
+	val += " " + outfile
 	return val
 }
 
@@ -905,4 +904,14 @@ func (c *Compiler) ParseLibrary(libraryFile string) (error, []byte) {
 		return err, nil
 	}
 	return err, out
+}
+
+func (c *Compiler) CopySymbols(infile string, outfile string, sm *symbol.SymbolMap) error {
+	cmd := c.CopySymbolsCmd(infile, outfile, sm)
+
+	_, err := util.ShellCommand(cmd)
+	if err != nil {
+		return err
+	}
+	return err
 }

@@ -129,12 +129,6 @@ func (target *Target) Validate(appRequired bool) error {
 				target.AppName)
 		}
 
-		loader := target.resolvePackageName(target.LoaderName)
-		if loader == nil {
-			return util.FmtNewtError("Could not resolve loader package: %s",
-				target.LoaderName)
-		}
-
 		if app.Type() != pkg.PACKAGE_TYPE_APP {
 			return util.FmtNewtError("target.app package (%s) is not of "+
 				"type app; type is: %s\n", app.Name(),

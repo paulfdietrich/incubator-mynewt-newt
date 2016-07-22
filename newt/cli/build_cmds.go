@@ -78,8 +78,8 @@ func buildRunCmd(cmd *cobra.Command, args []string) {
 			NewtUsage(nil, err)
 		}
 
-		util.StatusMessage(util.VERBOSITY_DEFAULT, "App successfully built: "+
-			"%s\n", "TODO Fix ME")
+		util.StatusMessage(util.VERBOSITY_DEFAULT, "Target successfully built: "+
+			"%s\n", targetName)
 
 		/* TODO */
 	}

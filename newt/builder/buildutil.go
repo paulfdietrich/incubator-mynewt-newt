@@ -52,6 +52,11 @@ func (b *Builder) AppElfPath() string {
 	return b.PkgBinDir(pkgName) + "/" + filepath.Base(pkgName) + ".elf"
 }
 
+func (b *Builder) AppLinkerElfPath() string {
+	pkgName := b.appPkg.Name()
+	return b.PkgBinDir(pkgName) + "/" + filepath.Base(pkgName) + "linker.elf"
+}
+
 func (b *Builder) AppImgPath() string {
 	pkgName := b.appPkg.Name()
 	return b.PkgBinDir(pkgName) + "/" + filepath.Base(pkgName) + ".img"

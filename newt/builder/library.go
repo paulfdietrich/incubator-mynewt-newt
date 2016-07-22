@@ -30,6 +30,7 @@ import (
 	"regexp"
 	"strconv"
 
+	"mynewt.apache.org/newt/newt/symbol"
 	"mynewt.apache.org/newt/util"
 )
 
@@ -48,7 +49,7 @@ import (
 * 00009514 g     F .text	0000029c .hidden __divdi3
 * 000085a8 g     F .text	00000054 os_eventq_put
 */
-func ParseObjectLine(line string, r *regexp.Regexp) (error, *SymbolInfo) {
+func ParseObjectLine(line string, r *regexp.Regexp) (error, *symbol.SymbolInfo) {
 
 	answer := r.FindAllStringSubmatch(line, 11)
 
@@ -64,9 +65,9 @@ func ParseObjectLine(line string, r *regexp.Regexp) (error, *SymbolInfo) {
 		return nil, nil
 	}
 
-	si := NewSymbolInfo()
+	si := symbol.NewSymbolInfo()
 
-	si.name = data[5]
+	si.Name = data[5]
 
 	v, err := strconv.ParseUint(data[1], 16, 32)
 
@@ -76,7 +77,7 @@ func ParseObjectLine(line string, r *regexp.Regexp) (error, *SymbolInfo) {
 		return nil, nil
 	}
 
-	si.loc = int(v)
+	si.Loc = int(v)
 
 	v, err = strconv.ParseUint(data[4], 16, 32)
 
@@ -86,75 +87,59 @@ func ParseObjectLine(line string, r *regexp.Regexp) (error, *SymbolInfo) {
 		return nil, nil
 	}
 
-	si.size = int(v)
-	si.code = data[2]
-	si.section = data[3]
+	si.Size = int(v)
+	si.Code = data[2]
+	si.Section = data[3]
 
 	return nil, si
 }
 
-func (b *Builder) RenameSymbol(si *SymbolInfo, ext string) error {
+func (b *Builder) RenameSymbol(si *symbol.SymbolInfo, ext string) error {
 	c, err := b.target.NewCompiler(b.AppElfPath())
 
 	if err != nil {
 		return err
 	}
-	libraryFile := b.ArchivePath(si.bpkg)
 
-	if (*si).ext == ".elf" {
-		libraryFile = b.AppElfPath()
+	util.StatusMessage(util.VERBOSITY_VERBOSE,
+		"Renaming symbol %s to %s from Application\n", (*si).Name, (*si).Name+ext)
+
+	libraryFile := b.ArchivePath((*si).Bpkg)
+
+	if (*si).Ext == ".elf" {
+		libraryFile = b.AppLinkerElfPath()
 	}
-	cmd := c.RenameSymbolCmd(si.name, libraryFile, ext)
+	cmd := c.RenameSymbolCmd((*si).Name, libraryFile, ext)
 
 	_, err = util.ShellCommand(cmd)
+
 	return err
 }
 
-func (b *Builder) RenameTextSection() error {
+func (b *Builder) RenameSymbols(sm *symbol.SymbolMap, ext string) error {
 	c, err := b.target.NewCompiler(b.AppElfPath())
 
 	if err != nil {
 		return err
 	}
 
-	libraryFile := b.AppElfPath()
+	for name, info1 := range *sm {
+		util.StatusMessage(util.VERBOSITY_VERBOSE,
+			"Removing symbol %s from Application\n", name)
 
-	cmd := c.RenameSectionCmd(libraryFile, ".text", ".rom")
+		libraryFile := b.ArchivePath(info1.Bpkg)
 
-	_, err = util.ShellCommand(cmd)
-	return err
-}
+		if info1.Ext == ".elf" {
+			libraryFile = b.AppLinkerElfPath()
+		}
+		cmd := c.RenameSymbolCmd(info1.Name, libraryFile, ext)
 
-func (b *Builder) RenameDataSection() error {
-	c, err := b.target.NewCompiler(b.AppElfPath())
-
-	if err != nil {
-		return err
+		_, err = util.ShellCommand(cmd)
+		if err != nil {
+			return err
+		}
 	}
 
-	libraryFile := b.AppElfPath()
-
-	cmd := c.RenameSectionCmd(libraryFile, ".data", ".data_orig")
-
-	_, err = util.ShellCommand(cmd)
-	return err
-}
-
-func (b *Builder) WeakenSymbol(si *SymbolInfo) error {
-	c, err := b.target.NewCompiler(b.AppElfPath())
-
-	if err != nil {
-		return err
-	}
-	libraryFile := b.ArchivePath(si.bpkg)
-
-	if (*si).ext == ".elf" {
-		libraryFile = b.AppElfPath()
-	}
-
-	cmd := c.WeakenSymbolCmd(si.name, libraryFile)
-
-	_, err = util.ShellCommand(cmd)
 	return err
 }
 
@@ -168,19 +153,19 @@ func getParseRexeg() (error, *regexp.Regexp) {
 	return nil, r
 }
 
-func (b *Builder) ParseObjectLibrary(bp *BuildPackage) (error, *SymbolMap) {
+func (b *Builder) ParseObjectLibrary(bp *BuildPackage) (error, *symbol.SymbolMap) {
 
 	file := b.ArchivePath(bp.Name())
 	return b.parseObjectLibraryFile(bp, file, true)
 }
 
-func (b *Builder) ParseObjectElf() (error, *SymbolMap) {
+func (b *Builder) ParseObjectElf() (error, *symbol.SymbolMap) {
 
 	file := b.AppElfPath()
 	return b.parseObjectLibraryFile(nil, file, false)
 }
 
-func (b *Builder) parseObjectLibraryFile(bp *BuildPackage, file string, textDataOnly bool) (error, *SymbolMap) {
+func (b *Builder) parseObjectLibraryFile(bp *BuildPackage, file string, textDataOnly bool) (error, *symbol.SymbolMap) {
 
 	c, err := b.target.NewCompiler(b.AppElfPath())
 
@@ -196,7 +181,7 @@ func (b *Builder) parseObjectLibraryFile(bp *BuildPackage, file string, textData
 		return err, nil
 	}
 
-	sm := NewSymbolMap()
+	sm := symbol.NewSymbolMap()
 
 	buffer := bytes.NewBuffer(out)
 
@@ -217,9 +202,9 @@ func (b *Builder) parseObjectLibraryFile(bp *BuildPackage, file string, textData
 
 			/* assign the library */
 			if bp != nil {
-				(*si).bpkg = bp.Name()
+				(*si).Bpkg = bp.Name()
 			} else {
-				(*si).bpkg = "elf"
+				(*si).Bpkg = "elf"
 			}
 
 			/*  discard undefined */
@@ -250,12 +235,25 @@ func (b *Builder) parseObjectLibraryFile(bp *BuildPackage, file string, textData
 			}
 
 			/* add the symbol to the map */
-			(*si).ext = ext
+			(*si).Ext = ext
 			sm.Add(*si)
 			util.StatusMessage(util.VERBOSITY_VERBOSE,
-				"Keeping Symbol %s in package %s\n", (*si).name, (*si).bpkg)
+				"Keeping Symbol %s in package %s\n", (*si).Name, (*si).Bpkg)
 		}
 	}
 
 	return nil, sm
+}
+
+func (b *Builder) CopySymbols(sm *symbol.SymbolMap) error {
+
+	c, err := b.target.NewCompiler(b.AppElfPath())
+
+	if err != nil {
+		return err
+	}
+
+	err = c.CopySymbols(b.AppElfPath(), b.AppLinkerElfPath(), sm)
+
+	return err
 }

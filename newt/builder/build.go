@@ -29,6 +29,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 
 	"mynewt.apache.org/newt/newt/pkg"
+	"mynewt.apache.org/newt/newt/symbol"
 	"mynewt.apache.org/newt/newt/target"
 	"mynewt.apache.org/newt/newt/toolchain"
 	"mynewt.apache.org/newt/util"
@@ -568,8 +569,8 @@ func (b *Builder) Clean() error {
 	return err
 }
 
-func (b *Builder) FetchSymbolMap() (error, *SymbolMap) {
-	loader_sm := NewSymbolMap()
+func (b *Builder) FetchSymbolMap() (error, *symbol.SymbolMap) {
+	loader_sm := symbol.NewSymbolMap()
 
 	for _, value := range b.Packages {
 		err, sm := b.ParseObjectLibrary(value)

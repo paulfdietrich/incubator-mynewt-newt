@@ -323,8 +323,10 @@ func (t *TargetBuilder) Size() error {
 	err := t.App.Size()
 
 	if err == nil {
-		fmt.Printf("Size of Loader Image: %s\n", t.Loader.buildName)
-		err = t.Loader.Size()
+		if t.Loader != nil {
+			fmt.Printf("Size of Loader Image: %s\n", t.Loader.buildName)
+			err = t.Loader.Size()
+		}
 	}
 
 	return err

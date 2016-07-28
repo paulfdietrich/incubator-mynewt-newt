@@ -20,6 +20,7 @@
 package toolchain
 
 import (
+	"bytes"
 	"io/ioutil"
 	"os"
 	"path"
@@ -27,6 +28,7 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -638,10 +640,6 @@ func (c *Compiler) CompileBinaryCmd(dstFile string, options map[string]bool,
 
 	cmd := c.ccPath + " -o " + dstFile + " " + " " + c.cflagsString()
 
-	//	if elfLib != "" {
-	//		cmd += " -Wl,--whole-archive " + elfLib + " -Wl,--no-whole-archive "
-	//	}
-
 	if c.ldResolveCircularDeps {
 		cmd += " -Wl,--start-group " + objList + " -Wl,--end-group "
 	} else {
@@ -682,10 +680,8 @@ func (c *Compiler) CompileBinary(dstFile string, options map[string]bool,
 
 	objList := c.getObjFiles(util.UniqueStrings(objFiles))
 
-	util.StatusMessage(util.VERBOSITY_DEFAULT, "Linking %s\n",
-		path.Base(dstFile))
-	util.StatusMessage(util.VERBOSITY_VERBOSE,
-		"Linking %s with input files %s\n",
+	util.StatusMessage(util.VERBOSITY_DEFAULT, "Linking %s\n", dstFile)
+	util.StatusMessage(util.VERBOSITY_VERBOSE, "Linking %s with input files %s\n",
 		dstFile, objList)
 
 	if elfLib != "" {
@@ -848,6 +844,21 @@ func (c *Compiler) CompileArchiveCmd(archiveFile string,
 	return c.arPath + " rcs " + archiveFile + " " + objList
 }
 
+// calculates the command-line invocation necessary to build a split all
+// archive from the collection of archive files
+func (c *Compiler) BuildSplitArchiveCmd(archiveFile string,
+	archFiles []string) string {
+
+	/* use the linker to combine these */
+	// str := c.ccPath + " -static -nostdlib -lgcc -o " + archiveFile + " -Wl,--whole-archive "
+	str := c.arPath + " rcT " + archiveFile + " "
+
+	for _, arch := range archFiles {
+		str += arch + " "
+	}
+	return str
+}
+
 // Archives the specified static library.
 //
 // @param archiveFile           The filename of the library to archive.
@@ -894,6 +905,212 @@ func (c *Compiler) CompileArchive(archiveFile string) error {
 	}
 
 	return nil
+}
+
+func getParseRexeg() (error, *regexp.Regexp) {
+	r, err := regexp.Compile("^([0-9A-Fa-f]+)[\t ]+([lgu! ][w ][C ][W ][Ii ][Dd ][FfO ])[\t ]+([^\t\n\f\r ]+)[\t ]+([0-9a-fA-F]+)[\t ]([^\t\n\f\r ]+)")
+
+	if err != nil {
+		return err, nil
+	}
+
+	return nil, r
+}
+
+/* This is a tricky thing to parse. Right now, I keep all the
+ * flags together and just store the offset, size, name and flags.
+* 00012970 l       .bss	00000000 _end
+* 00011c60 l       .init_array	00000000 __init_array_start
+* 00011c60 l       .init_array	00000000 __preinit_array_start
+* 000084b0 g     F .text	00000034 os_arch_start
+* 00000000 g       .debug_aranges	00000000 __HeapBase
+* 00011c88 g     O .data	00000008 g_os_task_list
+* 000082cc g     F .text	0000004c os_idle_task
+* 000094e0 g     F .text	0000002e .hidden __gnu_uldivmod_helper
+* 00000000 g       .svc_table	00000000 SVC_Count
+* 000125e4 g     O .bss	00000004 g_console_is_init
+* 00009514 g     F .text	0000029c .hidden __divdi3
+* 000085a8 g     F .text	00000054 os_eventq_put
+*/
+func ParseObjectLine(line string, r *regexp.Regexp) (error, *symbol.SymbolInfo) {
+
+	answer := r.FindAllStringSubmatch(line, 11)
+
+	if len(answer) == 0 {
+		return nil, nil
+	}
+
+	data := answer[0]
+
+	if len(data) != 6 {
+		util.StatusMessage(util.VERBOSITY_DEFAULT,
+			"Not enough content in object file line --- %s", line)
+		return nil, nil
+	}
+
+	si := symbol.NewSymbolInfo()
+
+	si.Name = data[5]
+
+	v, err := strconv.ParseUint(data[1], 16, 32)
+
+	if err != nil {
+		util.StatusMessage(util.VERBOSITY_DEFAULT,
+			"Could not convert location from object file line --- %s", line)
+		return nil, nil
+	}
+
+	si.Loc = int(v)
+
+	v, err = strconv.ParseUint(data[4], 16, 32)
+
+	if err != nil {
+		util.StatusMessage(util.VERBOSITY_DEFAULT,
+			"Could not convert size form object file line --- %s", line)
+		return nil, nil
+	}
+
+	si.Size = int(v)
+	si.Code = data[2]
+	si.Section = data[3]
+
+	return nil, si
+}
+
+func (c *Compiler) parseObjectLibraryFile(file string, textDataOnly bool) (error, *symbol.SymbolMap) {
+
+	ext := filepath.Ext(file)
+
+	err, out := c.ParseLibrary(file)
+
+	if err != nil {
+		return err, nil
+	}
+
+	sm := symbol.NewSymbolMap()
+
+	buffer := bytes.NewBuffer(out)
+
+	err, r := getParseRexeg()
+
+	if err != nil {
+		return err, nil
+	}
+
+	for {
+		line, err := buffer.ReadString('\n')
+		if err != nil {
+			break
+		}
+		err, si := ParseObjectLine(line, r)
+
+		if err == nil && si != nil {
+
+			/*  discard undefined */
+			if (*si).IsSection("*UND*") {
+				continue
+			}
+
+			/* discard debug symbols */
+			if (*si).IsDebug() {
+				continue
+			}
+
+			if (*si).IsFile() {
+				continue
+			}
+
+			/* if we are looking for text and data only, do a special check */
+			if textDataOnly {
+				include := (*si).IsSection(".bss") ||
+					(*si).IsSection(".text") ||
+					(*si).IsSection(".data") ||
+					(*si).IsSection("*COM*") ||
+					(*si).IsSection(".rodata")
+
+				if !include {
+					continue
+				}
+			}
+
+			/* add the symbol to the map */
+			(*si).Ext = ext
+			sm.Add(*si)
+			util.StatusMessage(util.VERBOSITY_VERBOSE,
+				"Keeping Symbol %s in package %s\n", (*si).Name, (*si).Bpkg)
+		}
+	}
+
+	return nil, sm
+}
+
+func (c *Compiler) RenameSymbols(sm *symbol.SymbolMap, libraryFile string, ext string) error {
+
+	for name, info1 := range *sm {
+		util.StatusMessage(util.VERBOSITY_VERBOSE,
+			"Removing symbol %s from Application\n", name)
+
+		cmd := c.RenameSymbolCmd(info1.Name, libraryFile, ext)
+
+		_, err := util.ShellCommand(cmd)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Archives the specified static library.
+//
+// @param archiveFile           The filename of the library to archive.
+// @param objFiles              An array of the source .o filenames.
+func (c *Compiler) BuildSplitArchive(archiveFile string, afiles []string, elfLib string) error {
+
+	arRequired, err := c.depTracker.CollectedArchiveRequired(archiveFile, afiles, elfLib)
+	if err != nil {
+		return err
+	}
+	if !arRequired {
+		return nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(archiveFile), 0755); err != nil {
+		return util.NewNewtError(err.Error())
+	}
+
+	util.StatusMessage(util.VERBOSITY_DEFAULT, "Building combined Archive %s\n",
+		archiveFile)
+	util.StatusMessage(util.VERBOSITY_VERBOSE, "Building combined %s with archives "+
+		"files %s\n", archiveFile, afiles)
+
+	// Delete the old archive, if it exists.
+	err = os.Remove(archiveFile)
+	if err != nil && !os.IsNotExist(err) {
+		return util.NewNewtError(err.Error())
+	}
+
+	cmd := c.BuildSplitArchiveCmd(archiveFile, afiles)
+	_, err = util.ShellCommand(cmd)
+	if err != nil {
+		return err
+	}
+
+	err = writeCommandFile(archiveFile, cmd)
+	if err != nil {
+		return err
+	}
+
+	if elfLib != "" {
+		/* get the symbol map from the loader_elf */
+		err, elf_rom_sm := c.parseObjectLibraryFile(elfLib, false)
+		if err != nil {
+			return err
+		}
+
+		err = c.RenameSymbols(elf_rom_sm, archiveFile, "_xxx")
+	}
+	return err
 }
 
 func (c *Compiler) ParseLibrary(libraryFile string) (error, []byte) {

@@ -20,8 +20,6 @@
 package builder
 
 import (
-	//"strings"
-
 	"mynewt.apache.org/newt/newt/interfaces"
 	"mynewt.apache.org/newt/newt/pkg"
 	"mynewt.apache.org/newt/newt/project"
@@ -60,11 +58,11 @@ func (t *TargetBuilder) NewCompiler(dstDir string) (*toolchain.Compiler, error) 
 }
 
 func (t *TargetBuilder) PrepBuild() error {
+
 	if t.Bsp != nil {
 		// Already prepped
 		return nil
 	}
-
 	// Collect the seed packages.
 	bspPkg := t.target.Bsp()
 	if bspPkg == nil {
@@ -75,8 +73,8 @@ func (t *TargetBuilder) PrepBuild() error {
 				t.target.BspName)
 		}
 	}
-
 	t.Bsp = pkg.NewBspPackage(bspPkg)
+
 	compilerPkg := t.resolveCompiler()
 	if compilerPkg == nil {
 		if t.Bsp.CompilerName == "" {
@@ -86,12 +84,10 @@ func (t *TargetBuilder) PrepBuild() error {
 				t.Bsp.CompilerName)
 		}
 	}
+	t.compilerPkg = compilerPkg
 
 	appPkg := t.target.App()
-
 	targetPkg := t.target.Package()
-
-	t.compilerPkg = compilerPkg
 
 	app, err := NewBuilder(t, "app")
 
@@ -100,10 +96,10 @@ func (t *TargetBuilder) PrepBuild() error {
 	} else {
 		return err
 	}
+
 	loaderPkg := t.target.Loader()
 
 	if loaderPkg != nil {
-
 		loader, err := NewBuilder(t, "loader")
 
 		if err == nil {
@@ -111,11 +107,21 @@ func (t *TargetBuilder) PrepBuild() error {
 		} else {
 			return err
 		}
-		t.Loader.PrepBuild(loaderPkg, bspPkg, targetPkg)
+
+		err = t.Loader.PrepBuild(loaderPkg, bspPkg, targetPkg)
+		if err != nil {
+			return err
+		}
 		t.LoaderList = project.ResetDeps(nil)
 	}
 
-	t.App.PrepBuild(appPkg, bspPkg, targetPkg)
+	bsp_pkg := t.target.Bsp()
+
+	err = t.App.PrepBuild(appPkg, bsp_pkg, targetPkg)
+	if err != nil {
+		return err
+	}
+
 	t.AppList = project.ResetDeps(nil)
 
 	return nil
@@ -133,40 +139,40 @@ func (t *TargetBuilder) Build() error {
 		return err
 	}
 
-	loader_sm := symbol.NewSymbolMap()
-
 	if t.Loader != nil {
+		project.ResetDeps(t.LoaderList)
+
 		if err = t.Bsp.Reload(t.Loader.Features()); err != nil {
 			return err
 		}
 
-		project.ResetDeps(t.LoaderList)
 		err = t.Loader.Build()
 
 		if err != nil {
 			return err
 		}
 
+		/* build a combined app archive to link against */
+		err = t.Loader.BuldAppArchive(t.Loader.AppCombinedLibPath())
+		if err != nil {
+			return err
+		}
+
+		/* perform the final link */
 		err = t.Loader.Link(t.Bsp.LinkerScript)
 
 		if err != nil {
 			return err
 		}
-
-		util.StatusMessage(util.VERBOSITY_DEFAULT,
-			"Generating Loader Symbol Map\n")
-		err, loader_sm = t.Loader.FetchSymbolMap()
-		if err != nil {
-			return err
-		}
 	}
+
+	/* Build the Apps */
+	project.ResetDeps(t.AppList)
 
 	if err := t.Bsp.Reload(t.App.Features()); err != nil {
 		return err
 	}
 
-	/* Build the Apps */
-	project.ResetDeps(t.AppList)
 	err = t.App.Build()
 
 	if err != nil {
@@ -174,62 +180,22 @@ func (t *TargetBuilder) Build() error {
 	}
 
 	if t.Loader != nil {
-		util.StatusMessage(util.VERBOSITY_DEFAULT,
-			"Generating Application Symbol Map\n")
-		err, app_sm := t.App.FetchSymbolMap()
+		err = t.buildRomElf()
 		if err != nil {
 			return err
 		}
 
-		util.StatusMessage(util.VERBOSITY_DEFAULT,
-			"Merging Symbol Maps\n")
-		union_sm := symbol.IdenticalUnion(loader_sm, app_sm, true)
-
-		/* handle special symbols */
-		union_sm.Remove("Reset_Handler")
-
-		/* slurp in all symbols from the actual loader binary */
-		err, loader_elf_sm := t.Loader.ParseObjectElf()
-		if err != nil {
-			return err
-		}
-
-		final_sm := symbol.IdenticalUnion(union_sm, loader_elf_sm, false)
-
-		/* remove the symbols from the .a files in the app */
-		util.StatusMessage(util.VERBOSITY_DEFAULT,
-			"Removing Duplicate Symbols from Application\n")
-		err = t.App.RenameSymbols(final_sm, "_xxx")
-		if err != nil {
-			return err
-		}
-		/* copy the .elf from the loader, keeping only the symbols that
-		 * we need */
-
-		/* NOTE: there is one special symbol we need in this image which
-		 * tells the split image linker how much RAM it is using HeapBase. We also
-		 * want to name it something else */
-		heapBaseSymbol := symbol.NewSymbolInfo()
-		heapBaseSymbol.Name = "__HeapBase"
-		heapBaseSymbol.Ext = ".elf"
-		final_sm.Add(*heapBaseSymbol)
-
-		util.StatusMessage(util.VERBOSITY_DEFAULT,
-			"Copying symbols from Loader to Application\n")
-		err = t.Loader.CopySymbols(final_sm)
-		if err != nil {
-			return err
-		}
-
-		err = t.Loader.RenameSymbol(heapBaseSymbol, "_loader")
-
-		if err != nil {
-			return err
-		}
-		linkerScript = t.Bsp.Part2LinkerScript
 		t.App.LinkElf = t.Loader.AppLinkerElfPath()
+		linkerScript = t.Bsp.Part2LinkerScript
 	} else {
 		linkerScript = t.Bsp.LinkerScript
+	}
+
+	/* now do a Pre-link/Post archive on the application */
+	err = t.App.BuldAppArchive(t.App.AppCombinedLibPath())
+
+	if err != nil {
+		return err
 	}
 
 	if linkerScript == "" {
@@ -244,6 +210,84 @@ func (t *TargetBuilder) Build() error {
 	}
 
 	return err
+}
+
+func (t *TargetBuilder) buildRomElf() error {
+
+	/* check dependencies on the ROM ELF.  This is really dependent on
+	 * all of the .a files, but since we already depend on the loader
+	 * .as to build the initial elf, we only need to check the app .a */
+	c, err := t.NewCompiler(t.Loader.AppElfPath())
+	d := toolchain.NewDepTracker(c)
+	if err != nil {
+		return err
+	}
+
+	archNames := []string{}
+
+	/* build the set of archive file names */
+	for _, bpkg := range t.App.Packages {
+		archivePath := t.App.ArchivePath(bpkg.Name())
+		if util.NodeExist(archivePath) {
+			archNames = append(archNames, archivePath)
+		}
+	}
+
+	bld, err := d.RomElfBuldRequired(t.Loader.AppLinkerElfPath(), t.Loader.AppElfPath(), archNames)
+	if err != nil {
+		return err
+	}
+
+	if !bld {
+		return nil
+	}
+
+	util.StatusMessage(util.VERBOSITY_DEFAULT,
+		"Generating ROM elf \n")
+
+	err, app_sm := t.App.FetchSymbolMap()
+	if err != nil {
+		return err
+	}
+
+	err, loader_sm := t.Loader.FetchSymbolMap()
+	if err != nil {
+		return err
+	}
+
+	union_sm := symbol.IdenticalUnion(loader_sm, app_sm, true)
+
+	/* handle special symbols */
+	union_sm.Remove("Reset_Handler")
+
+	/* slurp in all symbols from the actual loader binary */
+	err, loader_elf_sm := t.Loader.ParseObjectElf()
+	if err != nil {
+		return err
+	}
+
+	final_sm := symbol.IdenticalUnion(union_sm, loader_elf_sm, false)
+
+	/* NOTE: there is one special symbol we need in this image which
+	 * tells the split image linker how much RAM it is using HeapBase. We also
+	 * want to name it something else */
+	heapBaseSymbol := symbol.NewSymbolInfo()
+	heapBaseSymbol.Name = "__HeapBase"
+	heapBaseSymbol.Ext = ".elf"
+	final_sm.Add(*heapBaseSymbol)
+
+	err = t.Loader.CopySymbols(final_sm)
+	if err != nil {
+		return err
+	}
+
+	err = t.Loader.RenameSymbol(heapBaseSymbol, "_loader")
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (t *TargetBuilder) Test(p *pkg.LocalPackage) error {

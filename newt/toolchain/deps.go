@@ -270,6 +270,50 @@ func (tracker *DepTracker) ArchiveRequired(archiveFile string,
 	return false, nil
 }
 
+/* Determines if the collected Application Library needs to be
+ * re-archived from its components.We buil this archive
+ * because we want to remove symbols from it and preserve the
+ * exact copies of the original a's .
+ * Building this collected applicatiohn library is required if a
+ * .a is newer than the current lib or if the lib does not eist
+ * or if the elflib that is from the shared application is
+ * newer */
+func (tracker *DepTracker) CollectedArchiveRequired(dstFile string,
+	archiveFiles []string, elfLib string) (bool, error) {
+
+	// If the .A file doesn't exist or is older than any input file, a rebuild
+	// is required.
+	dstModTime, err := util.FileModificationTime(dstFile)
+	if err != nil {
+		return false, err
+	}
+
+	// If the elf file doesn't exist or is older than any input file, a rebuild
+	// is required.
+	if elfLib != "" {
+		elfDstModTime, err := util.FileModificationTime(elfLib)
+		if err != nil {
+			return false, err
+		}
+
+		if elfDstModTime.After(dstModTime) {
+			return true, nil
+		}
+	}
+
+	for _, archive := range archiveFiles {
+		objModTime, err := util.FileModificationTime(archive)
+		if err != nil {
+			return false, err
+		}
+
+		if objModTime.After(dstModTime) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // Determines if the specified elf file needs to be linked.  Linking is
 // necessary if the elf file does not exist or has an older modification time
 // than any source object or library file.
@@ -299,6 +343,16 @@ func (tracker *DepTracker) LinkRequired(dstFile string,
 		return false, err
 	}
 
+	// If the elf file doesn't exist or is older than any input file, a rebuild
+	// is required.
+	elfDstModTime, err := util.FileModificationTime(elfLib)
+	if err != nil {
+		return false, err
+	}
+
+	if elfDstModTime.After(dstModTime) {
+		return true, nil
+	}
 	// Check timestamp of each .o file in the project.
 	if tracker.MostRecent.After(dstModTime) {
 		util.StatusMessage(util.VERBOSITY_VERBOSE, "%s - link required; "+
@@ -325,3 +379,41 @@ func (tracker *DepTracker) LinkRequired(dstFile string,
 
 	return false, nil
 }
+
+/* Building a ROM elf is used for shared application linking.
+ * A ROM elf requires a rebuild if any of archives (.a files) are newer
+ * than the rom elf, or if the elf file is newer than the rom_elf */
+func (tracker *DepTracker) RomElfBuldRequired(dstFile string, elfFile string,
+	archFiles []string) (bool, error) {
+
+	// If the rom_elf file doesn't exist or is older than any input file, a rebuild
+	// is required.
+	dstModTime, err := util.FileModificationTime(dstFile)
+	if err != nil {
+		return false, err
+	}
+
+	// If the elf file doesn't exist or is older than any input file, a rebuild
+	// is required.
+	elfDstModTime, err := util.FileModificationTime(elfFile)
+	if err != nil {
+		return false, err
+	}
+
+	if elfDstModTime.After(dstModTime) {
+		return true, nil
+	}
+
+	for _, arch := range archFiles {
+		objModTime, err := util.FileModificationTime(arch)
+		if err != nil {
+			return false, err
+		}
+
+		if objModTime.After(dstModTime) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+

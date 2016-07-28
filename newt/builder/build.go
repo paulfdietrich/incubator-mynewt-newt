@@ -302,12 +302,13 @@ func (b *Builder) buildPackage(bpkg *BuildPackage) error {
 	return nil
 }
 
-func (b *Builder) link(elfName string, linkerScript string) error {
-	c, err := b.newCompiler(b.appPkg, b.PkgBinDir(elfName))
+func (b *Builder) BuldAppArchive(archiveFile string) error {
+	c, err := b.newCompiler(b.appPkg, b.PkgBinDir(archiveFile))
 	if err != nil {
 		return err
 	}
 
+	/* build the set of archive file names */
 	pkgNames := []string{}
 	for _, bpkg := range b.Packages {
 		archivePath := b.ArchivePath(bpkg.Name())
@@ -315,6 +316,19 @@ func (b *Builder) link(elfName string, linkerScript string) error {
 			pkgNames = append(pkgNames, archivePath)
 		}
 	}
+
+	return c.BuildSplitArchive(archiveFile, pkgNames, b.LinkElf)
+}
+
+func (b *Builder) link(elfName string, linkerScript string) error {
+	c, err := b.newCompiler(b.appPkg, b.PkgBinDir(elfName))
+	if err != nil {
+		return err
+	}
+
+	/* always used the combined archive file */
+	pkgNames := []string{}
+	pkgNames = append(pkgNames, b.AppCombinedLibPath())
 
 	if linkerScript != "" {
 		c.LinkerScript = b.target.Bsp.BasePath() + linkerScript
@@ -478,12 +492,6 @@ func (b *Builder) CheckValidFeature(pkg pkg.Package,
 
 func (b *Builder) Build() error {
 
-	// Populate the package and feature sets and calculate the base compiler
-	// flags.
-	if err := b.target.PrepBuild(); err != nil {
-		return err
-	}
-
 	// Build the packages alphabetically to ensure a consistent order.
 	bpkgs := b.sortedBuildPackages()
 	for _, bpkg := range bpkgs {
@@ -513,13 +521,6 @@ func (b *Builder) Test(p *pkg.LocalPackage) error {
 	//     * SELFTEST:  indicates that there is no app.
 	b.AddFeature("TEST")
 	b.AddFeature("SELFTEST")
-
-	// Populate the package and feature sets and calculate the base compiler
-	// flags.
-	err := b.target.PrepBuild()
-	if err != nil {
-		return err
-	}
 
 	// Define the PKG_TEST symbol while the package under test is being
 	// compiled.  This symbol enables the appropriate main function that

@@ -153,7 +153,7 @@ func (t *TargetBuilder) Build() error {
 		}
 
 		/* build a combined app archive to link against */
-		err = t.Loader.BuldAppArchive(t.Loader.AppCombinedLibPath())
+		err = t.Loader.BuildTrimmedArchives()
 		if err != nil {
 			return err
 		}
@@ -192,7 +192,7 @@ func (t *TargetBuilder) Build() error {
 	}
 
 	/* now do a Pre-link/Post archive on the application */
-	err = t.App.BuldAppArchive(t.App.AppCombinedLibPath())
+	err = t.App.BuildTrimmedArchives()
 
 	if err != nil {
 		return err
@@ -258,6 +258,9 @@ func (t *TargetBuilder) buildRomElf() error {
 	union_sm := symbol.IdenticalUnion(loader_sm, app_sm, true)
 
 	/* handle special symbols */
+
+	/* Make sure this is not shared as this is what links in the
+	 * entire application (essential the root of the function tree */
 	union_sm.Remove("Reset_Handler")
 
 	/* slurp in all symbols from the actual loader binary */
@@ -281,7 +284,10 @@ func (t *TargetBuilder) buildRomElf() error {
 		return err
 	}
 
-	err = t.Loader.RenameSymbol(heapBaseSymbol, "_loader")
+	/* rename this so it doesn't conflict */
+	tmp_sm := symbol.NewSymbolMap()
+	tmp_sm.Add(*heapBaseSymbol)
+	err = c.RenameSymbols(tmp_sm, t.Loader.AppLinkerElfPath(), "_loader")
 
 	if err != nil {
 		return err

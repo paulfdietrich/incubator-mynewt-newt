@@ -44,17 +44,17 @@ func (b *Builder) PkgBinDir(pkgName string) string {
 
 // Generates the path+filename of the specified package's .a file.
 func (b *Builder) ArchivePath(pkgName string) string {
+	return b.PkgBinDir(pkgName) + "/" + filepath.Base(pkgName) + "_x.a"
+}
+
+// Generates the path+filename of the specified package's .a file.
+func (b *Builder) TrimmedArchivePath(pkgName string) string {
 	return b.PkgBinDir(pkgName) + "/" + filepath.Base(pkgName) + ".a"
 }
 
 func (b *Builder) AppElfPath() string {
 	pkgName := b.appPkg.Name()
 	return b.PkgBinDir(pkgName) + "/" + filepath.Base(pkgName) + ".elf"
-}
-
-func (b *Builder) AppCombinedLibPath() string {
-	pkgName := b.appPkg.Name()
-	return b.PkgBinDir(pkgName) + "/" + filepath.Base(pkgName) + "_combined.a"
 }
 
 func (b *Builder) AppLinkerElfPath() string {

@@ -136,7 +136,8 @@ func (si *SymbolInfo) IsFile() bool {
 	return false
 }
 
-func (s *SymbolMap) Dump() {
+func (s *SymbolMap) Dump(name string) {
+	fmt.Printf("Dumping symbols in file: %s\n", name)
 	s.Iterate(dumpSi)
 }
 

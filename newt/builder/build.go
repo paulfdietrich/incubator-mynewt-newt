@@ -133,9 +133,10 @@ func (b *Builder) loadDeps() error {
 			}
 
 			if newFeatures {
-				// A new supported feature was discovered.  It is impossible to
-				// determine what new dependency and API requirements are
-				// generated as a result.  All packages need to be reprocessed.
+				// A new supported feature was discovered.  It is impossible
+				// to determine what new dependency and API requirements are
+				// generated as a result.  All packages need to be
+				// reprocessed.
 				for _, bpkg := range b.Packages {
 					bpkg.depsResolved = false
 					bpkg.apisSatisfied = false
@@ -302,22 +303,40 @@ func (b *Builder) buildPackage(bpkg *BuildPackage) error {
 	return nil
 }
 
-func (b *Builder) BuldAppArchive(archiveFile string) error {
-	c, err := b.newCompiler(b.appPkg, b.PkgBinDir(archiveFile))
-	if err != nil {
-		return err
-	}
+func (b *Builder) BuildTrimmedArchives() error {
 
-	/* build the set of archive file names */
-	pkgNames := []string{}
-	for _, bpkg := range b.Packages {
-		archivePath := b.ArchivePath(bpkg.Name())
-		if util.NodeExist(archivePath) {
-			pkgNames = append(pkgNames, archivePath)
+	elf_rom_sm := symbol.NewSymbolMap()
+
+	if b.LinkElf != "" {
+		/* get the symbol map from the loader_elf */
+		c, err := b.newCompiler(b.appPkg, b.AppElfPath())
+		if err != nil {
+			return err
+		}
+		err, elf_rom_sm = c.ParseObjectLibraryFile(b.LinkElf, false)
+		if err != nil {
+			return err
 		}
 	}
 
-	return c.BuildSplitArchive(archiveFile, pkgNames, b.LinkElf)
+	/* For each library in the project, trim the library with the elf
+	 * symbols */
+	for _, bpkg := range b.Packages {
+		c, err := b.newCompiler(b.appPkg, b.PkgBinDir(bpkg.Name()))
+		if err != nil {
+			return err
+		}
+		apath := b.ArchivePath(bpkg.Name())
+		tpath := b.TrimmedArchivePath(bpkg.Name())
+		if util.NodeExist(apath) {
+			err = c.BuildTrimmedArchive(tpath, apath, b.LinkElf, elf_rom_sm)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func (b *Builder) link(elfName string, linkerScript string) error {
@@ -326,9 +345,14 @@ func (b *Builder) link(elfName string, linkerScript string) error {
 		return err
 	}
 
-	/* always used the combined archive file */
+	/* always used the trimmed archive files */
 	pkgNames := []string{}
-	pkgNames = append(pkgNames, b.AppCombinedLibPath())
+
+	for _, bpkg := range b.Packages {
+		if util.NodeExist(b.ArchivePath(bpkg.Name())) {
+			pkgNames = append(pkgNames, b.TrimmedArchivePath(bpkg.Name()))
+		}
+	}
 
 	if linkerScript != "" {
 		c.LinkerScript = b.target.Bsp.BasePath() + linkerScript
@@ -344,7 +368,8 @@ func (b *Builder) link(elfName string, linkerScript string) error {
 // Populates the builder with all the packages that need to be built and
 // configures each package's build settings.  After this function executes,
 // packages are ready to be built.
-func (b *Builder) PrepBuild(appPkg *pkg.LocalPackage, bspPkg *pkg.LocalPackage, targetPkg *pkg.LocalPackage) error {
+func (b *Builder) PrepBuild(appPkg *pkg.LocalPackage,
+	bspPkg *pkg.LocalPackage, targetPkg *pkg.LocalPackage) error {
 
 	b.featureBlackList = []map[string]interface{}{}
 	b.featureWhiteList = []map[string]interface{}{}
@@ -434,7 +459,8 @@ func (b *Builder) PrepBuild(appPkg *pkg.LocalPackage, bspPkg *pkg.LocalPackage, 
 		return err
 	}
 
-	// Define a cpp symbol indicating the BSP architecture, name of the BSP and app.
+	// Define a cpp symbol indicating the BSP architecture, name of the
+	// BSP and app.
 	bspCi.Cflags = append(bspCi.Cflags, "-DARCH_"+b.target.Bsp.Arch)
 	bspCi.Cflags = append(bspCi.Cflags,
 		"-DBSP_NAME=\""+filepath.Base(b.target.Bsp.Name())+"\"")
@@ -565,7 +591,8 @@ func (b *Builder) Test(p *pkg.LocalPackage) error {
 
 func (b *Builder) Clean() error {
 	path := b.BinDir()
-	util.StatusMessage(util.VERBOSITY_VERBOSE, "Cleaning directory %s\n", path)
+	util.StatusMessage(util.VERBOSITY_VERBOSE, "Cleaning directory %s\n",
+		path)
 	err := os.RemoveAll(path)
 	return err
 }

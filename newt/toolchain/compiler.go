@@ -807,8 +807,14 @@ func (c *Compiler) CompileElf(binFile string, objFiles []string, elfLib string) 
 	return nil
 }
 
-func (c *Compiler) RenameSymbolCmd(symbolName string, libraryFile string, ext string) string {
-	val := c.ocPath + " --redefine-sym " + symbolName + "=" + symbolName + ext + " " + libraryFile
+func (c *Compiler) RenameSymbolsCmd(sm *symbol.SymbolMap, libraryFile string, ext string) string {
+	val := c.ocPath
+
+	for s, _ := range *sm {
+		val += " --redefine-sym " + s + "=" + s + ext
+	}
+
+	val += " " + libraryFile
 	return val
 }
 
@@ -844,18 +850,51 @@ func (c *Compiler) CompileArchiveCmd(archiveFile string,
 	return c.arPath + " rcs " + archiveFile + " " + objList
 }
 
-// calculates the command-line invocation necessary to build a split all
-// archive from the collection of archive files
-func (c *Compiler) BuildSplitArchiveCmd(archiveFile string,
-	archFiles []string) string {
+func linkerScriptFileName(archiveFile string) string {
+	ar_script_name := strings.TrimSuffix(archiveFile, filepath.Ext(archiveFile)) + "_ar.mri"
+	return ar_script_name
+}
 
-	/* use the linker to combine these */
-	// str := c.ccPath + " -static -nostdlib -lgcc -o " + archiveFile + " -Wl,--whole-archive "
-	str := c.arPath + " rcT " + archiveFile + " "
+/* this create a new library combining all of the other libraries */
+func createSplitArchiveLinkerFile(archiveFile string,
+	archFiles []string) error {
+
+	/* create a name for this script */
+	ar_script_name := linkerScriptFileName(archiveFile)
+
+	// open the file and write out the script
+	f, err := os.OpenFile(ar_script_name, os.O_CREATE|os.O_WRONLY, 0666)
+	if err != nil {
+		return util.NewNewtError(err.Error())
+	}
+	defer f.Close()
+
+	if _, err := f.WriteString("CREATE " + archiveFile + "\n"); err != nil {
+		return util.NewNewtError(err.Error())
+	}
 
 	for _, arch := range archFiles {
-		str += arch + " "
+		if _, err := f.WriteString("ADDLIB " + arch + "\n"); err != nil {
+			return util.NewNewtError(err.Error())
+		}
 	}
+
+	if _, err := f.WriteString("SAVE\n"); err != nil {
+		return util.NewNewtError(err.Error())
+	}
+
+	if _, err := f.WriteString("END\n"); err != nil {
+		return util.NewNewtError(err.Error())
+	}
+
+	return nil
+}
+
+// calculates the command-line invocation necessary to build a split all
+// archive from the collection of archive files
+func (c *Compiler) BuildSplitArchiveCmd(archiveFile string) string {
+
+	str := c.arPath + " -M < " + linkerScriptFileName(archiveFile)
 	return str
 }
 
@@ -977,7 +1016,7 @@ func ParseObjectLine(line string, r *regexp.Regexp) (error, *symbol.SymbolInfo) 
 	return nil, si
 }
 
-func (c *Compiler) parseObjectLibraryFile(file string, textDataOnly bool) (error, *symbol.SymbolMap) {
+func (c *Compiler) ParseObjectLibraryFile(file string, textDataOnly bool) (error, *symbol.SymbolMap) {
 
 	ext := filepath.Ext(file)
 
@@ -1046,28 +1085,29 @@ func (c *Compiler) parseObjectLibraryFile(file string, textDataOnly bool) (error
 
 func (c *Compiler) RenameSymbols(sm *symbol.SymbolMap, libraryFile string, ext string) error {
 
-	for name, info1 := range *sm {
-		util.StatusMessage(util.VERBOSITY_VERBOSE,
-			"Removing symbol %s from Application\n", name)
+	cmd := c.RenameSymbolsCmd(sm, libraryFile, ext)
 
-		cmd := c.RenameSymbolCmd(info1.Name, libraryFile, ext)
+	_, err := util.ShellCommand(cmd)
 
-		_, err := util.ShellCommand(cmd)
-		if err != nil {
-			return err
-		}
-	}
+	return err
+}
 
-	return nil
+// calculates the command-line invocation necessary to build a split all
+// archive from the collection of archive files
+func (c *Compiler) BuildCopyArchiveCmd(archiveFile string, iFile string) string {
+
+	str := c.ocPath + " " + iFile + " " + archiveFile
+	return str
 }
 
 // Archives the specified static library.
 //
 // @param archiveFile           The filename of the library to archive.
 // @param objFiles              An array of the source .o filenames.
-func (c *Compiler) BuildSplitArchive(archiveFile string, afiles []string, elfLib string) error {
+func (c *Compiler) BuildTrimmedArchive(archiveFile string, iFile string,
+	elfLib string, sm *symbol.SymbolMap) error {
 
-	arRequired, err := c.depTracker.CollectedArchiveRequired(archiveFile, afiles, elfLib)
+	arRequired, err := c.depTracker.TrimmedArchiveRequired(archiveFile, iFile, elfLib)
 	if err != nil {
 		return err
 	}
@@ -1079,18 +1119,13 @@ func (c *Compiler) BuildSplitArchive(archiveFile string, afiles []string, elfLib
 		return util.NewNewtError(err.Error())
 	}
 
-	util.StatusMessage(util.VERBOSITY_DEFAULT, "Building combined Archive %s\n",
-		archiveFile)
-	util.StatusMessage(util.VERBOSITY_VERBOSE, "Building combined %s with archives "+
-		"files %s\n", archiveFile, afiles)
-
 	// Delete the old archive, if it exists.
 	err = os.Remove(archiveFile)
 	if err != nil && !os.IsNotExist(err) {
 		return util.NewNewtError(err.Error())
 	}
 
-	cmd := c.BuildSplitArchiveCmd(archiveFile, afiles)
+	cmd := c.BuildCopyArchiveCmd(archiveFile, iFile)
 	_, err = util.ShellCommand(cmd)
 	if err != nil {
 		return err
@@ -1102,13 +1137,9 @@ func (c *Compiler) BuildSplitArchive(archiveFile string, afiles []string, elfLib
 	}
 
 	if elfLib != "" {
-		/* get the symbol map from the loader_elf */
-		err, elf_rom_sm := c.parseObjectLibraryFile(elfLib, false)
-		if err != nil {
-			return err
-		}
-
-		err = c.RenameSymbols(elf_rom_sm, archiveFile, "_xxx")
+		util.StatusMessage(util.VERBOSITY_DEFAULT, "Trimming Archive %s\n",
+			path.Base(archiveFile))
+		err = c.RenameSymbols(sm, archiveFile, "_xxx")
 	}
 	return err
 }

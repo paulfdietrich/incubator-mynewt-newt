@@ -49,7 +49,7 @@ import (
 * 00009514 g     F .text	0000029c .hidden __divdi3
 * 000085a8 g     F .text	00000054 os_eventq_put
 */
-func ParseObjectLine(line string, r *regexp.Regexp) (error, *symbol.SymbolInfo) {
+func parseObjectLine(line string, r *regexp.Regexp) (error, *symbol.SymbolInfo) {
 
 	answer := r.FindAllStringSubmatch(line, 11)
 
@@ -94,55 +94,6 @@ func ParseObjectLine(line string, r *regexp.Regexp) (error, *symbol.SymbolInfo) 
 	return nil, si
 }
 
-func (b *Builder) RenameSymbol(si *symbol.SymbolInfo, ext string) error {
-	c, err := b.target.NewCompiler(b.AppElfPath())
-
-	if err != nil {
-		return err
-	}
-
-	util.StatusMessage(util.VERBOSITY_VERBOSE,
-		"Renaming symbol %s to %s from Application\n", (*si).Name, (*si).Name+ext)
-
-	libraryFile := b.ArchivePath((*si).Bpkg)
-
-	if (*si).Ext == ".elf" {
-		libraryFile = b.AppLinkerElfPath()
-	}
-	cmd := c.RenameSymbolCmd((*si).Name, libraryFile, ext)
-
-	_, err = util.ShellCommand(cmd)
-
-	return err
-}
-
-func (b *Builder) RenameSymbols(sm *symbol.SymbolMap, ext string) error {
-	c, err := b.target.NewCompiler(b.AppElfPath())
-
-	if err != nil {
-		return err
-	}
-
-	for name, info1 := range *sm {
-		util.StatusMessage(util.VERBOSITY_VERBOSE,
-			"Removing symbol %s from Application\n", name)
-
-		libraryFile := b.ArchivePath(info1.Bpkg)
-
-		if info1.Ext == ".elf" {
-			libraryFile = b.AppLinkerElfPath()
-		}
-		cmd := c.RenameSymbolCmd(info1.Name, libraryFile, ext)
-
-		_, err = util.ShellCommand(cmd)
-		if err != nil {
-			return err
-		}
-	}
-
-	return err
-}
-
 func getParseRexeg() (error, *regexp.Regexp) {
 	r, err := regexp.Compile("^([0-9A-Fa-f]+)[\t ]+([lgu! ][w ][C ][W ][Ii ][Dd ][FfO ])[\t ]+([^\t\n\f\r ]+)[\t ]+([0-9a-fA-F]+)[\t ]([^\t\n\f\r ]+)")
 
@@ -156,16 +107,17 @@ func getParseRexeg() (error, *regexp.Regexp) {
 func (b *Builder) ParseObjectLibrary(bp *BuildPackage) (error, *symbol.SymbolMap) {
 
 	file := b.ArchivePath(bp.Name())
-	return b.parseObjectLibraryFile(bp, file, true)
+	return b.ParseObjectLibraryFile(bp, file, true)
 }
 
 func (b *Builder) ParseObjectElf() (error, *symbol.SymbolMap) {
 
 	file := b.AppElfPath()
-	return b.parseObjectLibraryFile(nil, file, false)
+	return b.ParseObjectLibraryFile(nil, file, false)
 }
 
-func (b *Builder) parseObjectLibraryFile(bp *BuildPackage, file string, textDataOnly bool) (error, *symbol.SymbolMap) {
+func (b *Builder) ParseObjectLibraryFile(bp *BuildPackage,
+	file string, textDataOnly bool) (error, *symbol.SymbolMap) {
 
 	c, err := b.target.NewCompiler(b.AppElfPath())
 
@@ -196,7 +148,7 @@ func (b *Builder) parseObjectLibraryFile(bp *BuildPackage, file string, textData
 		if err != nil {
 			break
 		}
-		err, si := ParseObjectLine(line, r)
+		err, si := parseObjectLine(line, r)
 
 		if err == nil && si != nil {
 

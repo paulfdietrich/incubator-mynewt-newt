@@ -1137,7 +1137,7 @@ func (c *Compiler) BuildTrimmedArchive(archiveFile string, iFile string,
 	}
 
 	if elfLib != "" {
-		util.StatusMessage(util.VERBOSITY_DEFAULT, "Trimming Archive %s\n",
+		util.StatusMessage(util.VERBOSITY_DEFAULT, "Trimming %s\n",
 			path.Base(archiveFile))
 		err = c.RenameSymbols(sm, archiveFile, "_xxx")
 	}

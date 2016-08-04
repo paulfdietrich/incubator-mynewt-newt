@@ -807,6 +807,17 @@ func (c *Compiler) CompileElf(binFile string, objFiles []string, elfLib string) 
 	return nil
 }
 
+func (c *Compiler) WeakenSymbolsCmd(sm *symbol.SymbolMap, libraryFile string) string {
+	val := c.ocPath
+
+	for s, _ := range *sm {
+		val += " -W " + s
+	}
+
+	val += " " + libraryFile
+	return val
+}
+
 func (c *Compiler) RenameSymbolsCmd(sm *symbol.SymbolMap, libraryFile string, ext string) string {
 	val := c.ocPath
 
@@ -1083,6 +1094,14 @@ func (c *Compiler) ParseObjectLibraryFile(file string, textDataOnly bool) (error
 	return nil, sm
 }
 
+func (c *Compiler) WeakenSymbol(sm *symbol.SymbolMap, libraryFile string) error {
+
+	cmd := c.WeakenSymbolsCmd(sm, libraryFile)
+
+	_, err := util.ShellCommand(cmd)
+
+	return err
+}
 func (c *Compiler) RenameSymbols(sm *symbol.SymbolMap, libraryFile string, ext string) error {
 
 	cmd := c.RenameSymbolsCmd(sm, libraryFile, ext)
@@ -1139,7 +1158,7 @@ func (c *Compiler) BuildTrimmedArchive(archiveFile string, iFile string,
 	if elfLib != "" {
 		util.StatusMessage(util.VERBOSITY_DEFAULT, "Trimming %s\n",
 			path.Base(archiveFile))
-		err = c.RenameSymbols(sm, archiveFile, "_xxx")
+		err = c.WeakenSymbol(sm, archiveFile)
 	}
 	return err
 }

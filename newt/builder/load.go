@@ -94,6 +94,7 @@ func (b *Builder) Load(image_slot int) error {
 }
 
 func (t *TargetBuilder) Debug() error {
+	var additional_libs []string
 	err := t.PrepBuild()
 
 	if err != nil {
@@ -101,13 +102,15 @@ func (t *TargetBuilder) Debug() error {
 	}
 
 	if t.Loader != nil {
-		return t.Loader.Debug()
-	} else {
-		return t.App.Debug()
+		basename := t.Loader.AppElfPath()
+		name := strings.TrimSuffix(basename, filepath.Ext(basename))
+		additional_libs = append(additional_libs, name)
 	}
+
+	return t.App.Debug(additional_libs)
 }
 
-func (b *Builder) Debug() error {
+func (b *Builder) Debug(addlibs []string) error {
 	if b.appPkg == nil {
 		return util.NewNewtError("app package not specified")
 	}
@@ -123,11 +126,12 @@ func (b *Builder) Debug() error {
 	bspPath := b.target.Bsp.BasePath()
 	debugScript := filepath.Join(bspPath, b.target.Bsp.DebugScript)
 	binBaseName := b.AppBinBasePath()
-	featureString := strings.Split(b.FeatureString(), " ")
 
 	os.Chdir(project.GetProject().Path())
 
 	cmdLine := []string{debugScript, bspPath, binBaseName}
-	cmdLine = append(cmdLine, featureString...)
+	cmdLine = append(cmdLine, addlibs...)
+
+	fmt.Printf("%s\n", cmdLine)
 	return util.ShellInteractiveCommand(cmdLine)
 }

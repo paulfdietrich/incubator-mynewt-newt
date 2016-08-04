@@ -516,6 +516,10 @@ func (b *Builder) CheckValidFeature(pkg pkg.Package,
 	}
 }
 
+func (b *Builder) AddCompilerInfo(info *toolchain.CompilerInfo) {
+	b.compilerInfo.AddCompilerInfo(info)
+}
+
 func (b *Builder) Build() error {
 
 	// Build the packages alphabetically to ensure a consistent order.

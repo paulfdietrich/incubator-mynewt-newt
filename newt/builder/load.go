@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"mynewt.apache.org/newt/newt/project"
 	"mynewt.apache.org/newt/util"
@@ -94,20 +93,21 @@ func (b *Builder) Load(image_slot int) error {
 }
 
 func (t *TargetBuilder) Debug() error {
-	var additional_libs []string
+	//var additional_libs []string
 	err := t.PrepBuild()
 
 	if err != nil {
 		return err
 	}
 
-	if t.Loader != nil {
-		basename := t.Loader.AppElfPath()
-		name := strings.TrimSuffix(basename, filepath.Ext(basename))
-		additional_libs = append(additional_libs, name)
-	}
+	//	if t.Loader != nil {
+	//		basename := t.Loader.AppElfPath()
+	//		name := strings.TrimSuffix(basename, filepath.Ext(basename))
+	//		additional_libs = append(additional_libs, name)
+	//	}
 
-	return t.App.Debug(additional_libs)
+	//	return t.App.Debug(additional_libs)
+	return t.Loader.Debug(nil)
 }
 
 func (b *Builder) Debug(addlibs []string) error {

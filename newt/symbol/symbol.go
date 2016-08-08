@@ -50,6 +50,13 @@ func NewSymbolInfo() *SymbolInfo {
 	return val
 }
 
+func NewElfSymbol(name string) *SymbolInfo {
+	val := NewSymbolInfo()
+	val.Name = name
+	val.Ext = ".elf"
+	return val
+}
+
 func (s *SymbolMap) Add(info SymbolInfo) {
 	(*s)[info.Name] = info
 }

@@ -282,51 +282,34 @@ func (t *TargetBuilder) buildRomElf() error {
 	/* NOTE: there are a few special symbols that we need the split
 	 * application to know about  */
 
-	/* so the split app linker can reserve space for the RAM usage
-	 * of the shared loader code */
-	heapBaseSymbol := symbol.NewSymbolInfo()
-	heapBaseSymbol.Name = "__HeapBase"
-	heapBaseSymbol.Ext = ".elf"
-	final_sm.Add(*heapBaseSymbol)
-
-	bss_start := symbol.NewSymbolInfo()
-	bss_start.Name = "__bss_start__"
-	bss_start.Ext = ".elf"
-	final_sm.Add(*bss_start)
-
-	bss_end := symbol.NewSymbolInfo()
-	bss_end.Name = "__bss_end__"
-	bss_end.Ext = ".elf"
-	final_sm.Add(*bss_end)
-
-	data_start := symbol.NewSymbolInfo()
-	data_start.Name = "__data_start__"
-	data_start.Ext = ".elf"
-	final_sm.Add(*data_start)
-
-	data_end := symbol.NewSymbolInfo()
-	data_end.Name = "__data_end__"
-	data_end.Ext = ".elf"
-	final_sm.Add(*data_end)
-
-	etext := symbol.NewSymbolInfo()
-	etext.Name = "__etext"
-	etext.Ext = ".elf"
-	final_sm.Add(*etext)
+	/* it was difficult to autogenerate these as they are hardcoded
+	 * in the linker,but both pieces of code need to use them */
+	final_sm.Add(*symbol.NewElfSymbol("__HeapBase"))
+	final_sm.Add(*symbol.NewElfSymbol("__bss_start__"))
+	final_sm.Add(*symbol.NewElfSymbol("__bss_end__"))
+	final_sm.Add(*symbol.NewElfSymbol("__etext"))
+	final_sm.Add(*symbol.NewElfSymbol("__data_start__"))
+	final_sm.Add(*symbol.NewElfSymbol("__data_end__"))
+	final_sm.Add(*symbol.NewElfSymbol("__vector_tbl_reloc__"))
+	final_sm.Add(*symbol.NewElfSymbol("__isr_vector_end"))
+	final_sm.Add(*symbol.NewElfSymbol("__isr_vector_start"))
 
 	err = t.Loader.CopySymbols(final_sm)
 	if err != nil {
 		return err
 	}
 
-	/* rename these so they doesn't conflict */
+	/* These symbols are needed by the split app so it can zero
+	 * bss and copy data from the loader app before it restarts,
+	 * but we have to rename them since it has its own copies of
+	 * these special linker symbols  */
 	tmp_sm := symbol.NewSymbolMap()
-	tmp_sm.Add(*heapBaseSymbol)
-	tmp_sm.Add(*bss_start)
-	tmp_sm.Add(*bss_end)
-	tmp_sm.Add(*etext)
-	tmp_sm.Add(*data_start)
-	tmp_sm.Add(*data_end)
+	tmp_sm.Add(*symbol.NewElfSymbol("__HeapBase"))
+	tmp_sm.Add(*symbol.NewElfSymbol("__bss_start__"))
+	tmp_sm.Add(*symbol.NewElfSymbol("__bss_end__"))
+	tmp_sm.Add(*symbol.NewElfSymbol("__etext"))
+	tmp_sm.Add(*symbol.NewElfSymbol("__data_start__"))
+	tmp_sm.Add(*symbol.NewElfSymbol("__data_end__"))
 	err = c.RenameSymbols(tmp_sm, t.Loader.AppLinkerElfPath(), "_loader")
 
 	if err != nil {

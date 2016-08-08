@@ -48,6 +48,8 @@ import (
 * 000125e4 g     O .bss	00000004 g_console_is_init
 * 00009514 g     F .text	0000029c .hidden __divdi3
 * 000085a8 g     F .text	00000054 os_eventq_put
+* 00000100       O *COM*	00000004 g_idle_task_stack
+
 */
 func parseObjectLine(line string, r *regexp.Regexp) (error, *symbol.SymbolInfo) {
 
@@ -90,6 +92,13 @@ func parseObjectLine(line string, r *regexp.Regexp) (error, *symbol.SymbolInfo) 
 	si.Size = int(v)
 	si.Code = data[2]
 	si.Section = data[3]
+
+	/*  Common section has length in a different spot. Also, these
+	 * are really global variables so mark them as such */
+	if si.IsSection("*COM*") {
+		si.Size = (*si).Loc
+		si.Code = "g" + si.Code[1:]
+	}
 
 	return nil, si
 }

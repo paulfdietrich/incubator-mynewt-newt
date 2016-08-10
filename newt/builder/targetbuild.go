@@ -112,6 +112,11 @@ func (t *TargetBuilder) PrepBuild() error {
 		if err != nil {
 			return err
 		}
+
+		loader_flag := toolchain.NewCompilerInfo()
+		loader_flag.Cflags = append(loader_flag.Cflags, "-DSPLIT_LOADER")
+		t.Loader.AddCompilerInfo(loader_flag)
+
 		t.LoaderList = project.ResetDeps(nil)
 	}
 
@@ -150,7 +155,7 @@ func (t *TargetBuilder) Build() error {
 	if t.Loader != nil {
 		project.ResetDeps(t.LoaderList)
 
-		if err = t.Bsp.Reload(t.Loader.Features()); err != nil {
+		if err = t.Bsp.Reload(t.Loader.Features(t.Loader.BspPkg)); err != nil {
 			return err
 		}
 
@@ -177,7 +182,7 @@ func (t *TargetBuilder) Build() error {
 	/* Build the Apps */
 	project.ResetDeps(t.AppList)
 
-	if err := t.Bsp.Reload(t.App.Features()); err != nil {
+	if err := t.Bsp.Reload(t.App.Features(t.App.BspPkg)); err != nil {
 		return err
 	}
 

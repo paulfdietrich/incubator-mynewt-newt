@@ -40,6 +40,7 @@ type Builder struct {
 	features         map[string]bool
 	apis             map[string]*BuildPackage
 	appPkg           *BuildPackage
+	BspPkg           *pkg.LocalPackage
 	compilerInfo     *toolchain.CompilerInfo
 	featureWhiteList []map[string]interface{}
 	featureBlackList []map[string]interface{}
@@ -285,7 +286,7 @@ func (b *Builder) buildPackage(bpkg *BuildPackage) error {
 		}
 		if b.features["TEST"] {
 			testSrcDir := dir + "/test"
-			if err = buildDir(testSrcDir, c, b.target.Arch, nil); err != nil {
+			if err = buildDir(testSrcDir, c, b.target.Bsp.Arch, nil); err != nil {
 				return err
 			}
 		}
@@ -376,6 +377,8 @@ func (b *Builder) PrepBuild(appPkg *pkg.LocalPackage,
 
 	// Seed the builder with the app (if present), bsp, and target packages.
 
+	b.BspPkg = bspPkg
+
 	var appBpkg *BuildPackage
 	if appPkg != nil {
 		appBpkg = b.Packages[appPkg]
@@ -434,7 +437,7 @@ func (b *Builder) PrepBuild(appPkg *pkg.LocalPackage,
 	baseCi := toolchain.NewCompilerInfo()
 
 	// Target flags.
-	log.Debugf("Generating build flags for target %s", b.target.FullName())
+	log.Debugf("Generating build flags for target %s", b.target.target.FullName())
 	targetCi, err := targetBpkg.CompilerInfo(b)
 	if err != nil {
 		return err

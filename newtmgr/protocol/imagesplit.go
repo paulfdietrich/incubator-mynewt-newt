@@ -22,13 +22,56 @@ package protocol
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"mynewt.apache.org/newt/util"
 )
 
+type SplitMode int
+
+const (
+	NONE SplitMode = iota
+	TEST
+	RUN
+)
+
+var splitMode = [...]string{
+	"none",
+	"test",
+	"run",
+}
+
+/* is the enum valid */
+func (sm SplitMode) Valid() bool {
+	for val, _ := range splitMode {
+		if int(sm) == val {
+			return true
+		}
+	}
+	return false
+}
+
+/* returns the enum as a string */
+func (sm SplitMode) String() string {
+	if sm > RUN || sm < 0 {
+		return "Invalid!"
+	}
+	return splitMode[sm]
+}
+
+/* parses the enum from a string */
+func ParseSplitMode(str string) (SplitMode, error) {
+	for val, key := range splitMode {
+		if strings.EqualFold(key, str) {
+			return SplitMode(val), nil
+		}
+	}
+	return NONE, util.NewNewtError("Invalid value for Split Mode %v" + str)
+}
+
 type Split struct {
-	Split      bool
-	ReturnCode int `json:"rc"`
+	Split      SplitMode `json:"splitMode"`
+	ReturnCode int       `json:"rc"`
 }
 
 func NewSplit() (*Split, error) {
@@ -57,15 +100,14 @@ func (s *Split) EncoderReadRequest() (*NmgrReq, error) {
 }
 
 func (s *Split) EncoderWriteRequest() (*NmgrReq, error) {
-	msg := "{\"split\": "
-	if s.Split {
-		msg += "true"
-	} else {
-		msg += "false"
-	}
-	msg += "}"
 
-	data := []byte(msg)
+	data, err := json.Marshal(s)
+
+	fmt.Println(string(data[:]))
+
+	if err != nil {
+		return nil, err
+	}
 
 	nmr, err := NewNmgrReq()
 	if err != nil {

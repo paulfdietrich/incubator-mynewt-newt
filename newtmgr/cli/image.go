@@ -25,7 +25,6 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	"strconv"
 	"time"
 
 	"mynewt.apache.org/newt/newtmgr/config"
@@ -643,7 +642,7 @@ func splitCmd(cmd *cobra.Command, args []string) {
 	if len(args) == 0 {
 		nmr, err = split.EncoderReadRequest()
 	} else if len(args) == 1 {
-		b, err := strconv.ParseBool(args[0])
+		b, err := protocol.ParseSplitMode(args[0])
 
 		if err != nil {
 			nmUsage(cmd, util.NewNewtError("Invalid Boolean Argument"))
@@ -670,7 +669,7 @@ func splitCmd(cmd *cobra.Command, args []string) {
 	}
 
 	if len(args) == 0 {
-		fmt.Printf("Split value is %v\n", srsp.Split)
+		fmt.Printf("Split value is %s\n", srsp.Split)
 	}
 	if srsp.ReturnCode != 0 {
 		fmt.Printf("Error executing split command: rc=%d\n", srsp.ReturnCode)

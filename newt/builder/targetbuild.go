@@ -329,8 +329,59 @@ func (t *TargetBuilder) Test(p *pkg.LocalPackage) error {
 		return err
 	}
 
-	/* TODO test the app */
-	return nil
+	if t.Bsp != nil {
+		// Already prepped
+		return nil
+	}
+	// Collect the seed packages.
+	bspPkg := t.target.Bsp()
+	if bspPkg == nil {
+		if t.target.BspName == "" {
+			return util.NewNewtError("BSP package not specified by target")
+		} else {
+			return util.NewNewtError("BSP package not found: " +
+				t.target.BspName)
+		}
+	}
+	t.Bsp = pkg.NewBspPackage(bspPkg)
+
+	compilerPkg := t.resolveCompiler()
+	if compilerPkg == nil {
+		if t.Bsp.CompilerName == "" {
+			return util.NewNewtError("Compiler package not specified by BSP")
+		} else {
+			return util.NewNewtError("Compiler package not found: " +
+				t.Bsp.CompilerName)
+		}
+	}
+	t.compilerPkg = compilerPkg
+
+	targetPkg := t.target.Package()
+
+	app, err := NewBuilder(t, "test")
+
+	if err == nil {
+		t.App = app
+	} else {
+		return err
+	}
+
+	// A few features are automatically supported when the test command is
+	// used:
+	//     * TEST:      ensures that the test code gets compiled.
+	//     * SELFTEST:  indicates that there is no app.
+	t.App.AddFeature("TEST")
+	t.App.AddFeature("SELFTEST")
+
+	err = t.App.PrepBuild(p, bspPkg, targetPkg)
+
+	if err != nil {
+		return err
+	}
+
+	err = t.App.Test(p)
+
+	return err
 }
 
 func (t *TargetBuilder) resolveCompiler() *pkg.LocalPackage {

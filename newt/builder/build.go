@@ -548,13 +548,6 @@ func (b *Builder) Test(p *pkg.LocalPackage) error {
 	// Seed the builder with the package under test.
 	testBpkg := b.AddPackage(p)
 
-	// A few features are automatically supported when the test command is
-	// used:
-	//     * TEST:      ensures that the test code gets compiled.
-	//     * SELFTEST:  indicates that there is no app.
-	b.AddFeature("TEST")
-	b.AddFeature("SELFTEST")
-
 	// Define the PKG_TEST symbol while the package under test is being
 	// compiled.  This symbol enables the appropriate main function that
 	// usually comes from an app.
@@ -571,6 +564,12 @@ func (b *Builder) Test(p *pkg.LocalPackage) error {
 		if err != nil {
 			return err
 		}
+
+		err := b.BuildTrimmedArchives()
+		if err != nil {
+			return err
+		}
+
 	}
 
 	testFilename := b.TestExePath(p.Name())

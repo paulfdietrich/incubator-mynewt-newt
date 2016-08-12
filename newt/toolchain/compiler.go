@@ -653,7 +653,7 @@ func (c *Compiler) CompileBinaryCmd(dstFile string, options map[string]bool,
 	cmd += " " + c.lflagsString()
 
 	/* so we don't get multiple global definitions of the same vartiable */
-	cmd += " -Wl,--warn-common "
+	//cmd += " -Wl,--warn-common "
 
 	if c.LinkerScript != "" {
 		cmd += " -T " + c.LinkerScript
@@ -1144,13 +1144,7 @@ func (c *Compiler) BuildTrimmedArchive(archiveFile string, iFile string,
 		return util.NewNewtError(err.Error())
 	}
 
-	cmd := c.BuildCopyArchiveCmd(archiveFile, iFile)
-	_, err = util.ShellCommand(cmd)
-	if err != nil {
-		return err
-	}
-
-	err = writeCommandFile(archiveFile, cmd)
+	err = newtutil.CopyFile(archiveFile, iFile)
 	if err != nil {
 		return err
 	}

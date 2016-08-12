@@ -45,7 +45,6 @@ import (
 	log "github.com/Sirupsen/logrus"
 
 	"mynewt.apache.org/newt/newt/builder"
-	"mynewt.apache.org/newt/newt/target"
 	"mynewt.apache.org/newt/util"
 )
 
@@ -57,8 +56,6 @@ type ImageVersion struct {
 }
 
 type Image struct {
-	builder *builder.Builder
-
 	sourceBin    string
 	targetImg    string
 	manifestFile string
@@ -121,12 +118,16 @@ const (
  * Data that's going to go to build manifest file
  */
 type ImageManifest struct {
-	Date    string              `json:"build_time"`
-	Version string              `json:"build_version"`
-	Hash    string              `json:"id"`
-	Image   string              `json:"image"`
-	Pkgs    []*ImageManifestPkg `json:"pkgs"`
-	TgtVars []string            `json:"target"`
+	Date       string              `json:"build_time"`
+	Version    string              `json:"build_version"`
+	BuildID    string              `json:"id"`
+	Image      string              `json:"image"`
+	ImageHash  string              `json:"image_hash"`
+	Loader     string              `json:"loader"`
+	LoaderHash string              `json:"loader_hash"`
+	Pkgs       []*ImageManifestPkg `json:"pkgs"`
+	LoaderPkgs []*ImageManifestPkg `json:"loader_pkgs"`
+	TgtVars    []string            `json:"target"`
 }
 
 type ImageManifestPkg struct {
@@ -139,9 +140,7 @@ type ECDSASig struct {
 }
 
 func NewImage(b *builder.Builder, bootable bool) (*Image, error) {
-	image := &Image{
-		builder: b,
-	}
+	image := &Image{}
 
 	image.sourceBin = b.AppElfPath() + ".bin"
 	image.targetImg = b.AppImgPath()
@@ -436,28 +435,48 @@ func (image *Image) Generate() error {
 	return nil
 }
 
-func (image *Image) CreateManifest(t *target.Target) error {
+func CreateManifest(t *builder.TargetBuilder, app *Image, loader *Image) error {
 	versionStr := fmt.Sprintf("%d.%d.%d.%d",
-		image.version.Major, image.version.Minor,
-		image.version.Rev, image.version.BuildNum)
-	hashStr := fmt.Sprintf("%x", image.hash)
+		app.version.Major, app.version.Minor,
+		app.version.Rev, app.version.BuildNum)
+	hashStr := fmt.Sprintf("%x", app.hash)
 	timeStr := time.Now().Format(time.RFC3339)
 
 	manifest := &ImageManifest{
-		Version: versionStr,
-		Hash:    hashStr,
-		Image:   filepath.Base(image.targetImg),
-		Date:    timeStr,
+		Version:   versionStr,
+		ImageHash: hashStr,
+		Image:     filepath.Base(app.targetImg),
+		Date:      timeStr,
 	}
 
-	for _, builtPkg := range image.builder.Packages {
+	for _, builtPkg := range t.App.Packages {
 		imgPkg := &ImageManifestPkg{
 			Name: builtPkg.Name(),
 		}
 		manifest.Pkgs = append(manifest.Pkgs, imgPkg)
 	}
 
-	vars := t.Vars
+	hash := sha256.New()
+	hash.Write(app.hash)
+
+	if loader != nil {
+		manifest.Loader = filepath.Base(loader.targetImg)
+		manifest.LoaderHash = fmt.Sprintf("%x", loader.hash)
+
+		for _, builtPkg := range t.Loader.Packages {
+			imgPkg := &ImageManifestPkg{
+				Name: builtPkg.Name(),
+			}
+			manifest.LoaderPkgs = append(manifest.LoaderPkgs, imgPkg)
+		}
+
+		hash.Write(loader.hash)
+	}
+
+	build_id := hash.Sum(nil)
+	manifest.BuildID = fmt.Sprintf("%x", build_id)
+
+	vars := t.GetTarget().Vars
 	var keys []string
 	for k := range vars {
 		keys = append(keys, k)
@@ -466,10 +485,10 @@ func (image *Image) CreateManifest(t *target.Target) error {
 	for _, k := range keys {
 		manifest.TgtVars = append(manifest.TgtVars, k+"="+vars[k])
 	}
-	file, err := os.Create(image.manifestFile)
+	file, err := os.Create(app.manifestFile)
 	if err != nil {
 		return util.NewNewtError(fmt.Sprintf("Cannot create manifest file %s: %s",
-			image.manifestFile, err.Error()))
+			app.manifestFile, err.Error()))
 	}
 	defer file.Close()
 

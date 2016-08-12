@@ -30,41 +30,35 @@ import (
 )
 
 func CreateImage(b *builder.Builder, version string,
-	keystr string, keyId uint8, bootable bool) error {
+	keystr string, keyId uint8, bootable bool) (error, *image.Image) {
 
 	/* do the app image */
 	app_image, err := image.NewImage(b, bootable)
 	if err != nil {
-		return err
+		return err, nil
 	}
 
 	err = app_image.SetVersion(version)
 	if err != nil {
-		return err
+		return err, nil
 	}
 
 	if keystr != "" {
 		err = app_image.SetSigningKey(keystr, keyId)
 		if err != nil {
-			return err
+			return err, nil
 		}
 	}
 
 	err = app_image.Generate()
 	if err != nil {
-		return err
+		return err, nil
 	}
 
-	err = app_image.CreateManifest(b.GetTarget())
-	if err != nil {
-		return err
-	}
 	util.StatusMessage(util.VERBOSITY_DEFAULT,
 		"App image succesfully generated: %s\n", app_image.TargetImg())
-	util.StatusMessage(util.VERBOSITY_DEFAULT, "Build manifest: %s\n",
-		app_image.ManifestFile())
 
-	return nil
+	return nil, app_image
 }
 
 func createImageRunCmd(cmd *cobra.Command, args []string) {
@@ -110,24 +104,29 @@ func createImageRunCmd(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	var app_img *image.Image
+	var loader_img *image.Image
+
 	if b.Loader == nil {
-		err = CreateImage(b.App, version, keystr, keyId, true)
+		err, app_img = CreateImage(b.App, version, keystr, keyId, true)
 		if err != nil {
 			NewtUsage(cmd, err)
 			return
 		}
 	} else {
-		err = CreateImage(b.App, version, keystr, keyId, false)
+		err, app_img = CreateImage(b.App, version, keystr, keyId, false)
 		if err != nil {
 			NewtUsage(cmd, err)
 			return
 		}
-		err = CreateImage(b.Loader, version, keystr, keyId, true)
+		err, loader_img = CreateImage(b.Loader, version, keystr, keyId, true)
 		if err != nil {
 			NewtUsage(cmd, err)
 			return
 		}
 	}
+
+	err = image.CreateManifest(b, app_img, loader_img)
 }
 
 func AddImageCommands(cmd *cobra.Command) {

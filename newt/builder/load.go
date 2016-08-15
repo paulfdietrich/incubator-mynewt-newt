@@ -107,6 +107,9 @@ func (t *TargetBuilder) Debug() error {
 	//	}
 
 	//	return t.App.Debug(additional_libs)
+	if t.Loader == nil {
+		return t.App.Debug(nil)
+	}
 	return t.Loader.Debug(nil)
 }
 

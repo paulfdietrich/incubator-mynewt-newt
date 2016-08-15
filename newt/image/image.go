@@ -29,6 +29,7 @@ import (
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -274,7 +275,7 @@ func (image *Image) Generate(loader *Image) error {
 	hash := sha256.New()
 
 	if loader != nil {
-		err = binary.Write(hash, binary.LittleEndian, image.hash)
+		err = binary.Write(hash, binary.LittleEndian, loader.hash)
 		if err != nil {
 			return util.NewNewtError(fmt.Sprintf("Failed to seed hash: %s",
 				err.Error()))
@@ -442,6 +443,8 @@ func (image *Image) Generate(loader *Image) error {
 		}
 	}
 
+	util.StatusMessage(util.VERBOSITY_VERBOSE,
+		"Computed Hash for image %s as %s \n", image.TargetImg(), hex.EncodeToString(image.hash[:]))
 	return nil
 }
 

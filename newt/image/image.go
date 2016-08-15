@@ -62,7 +62,6 @@ type Image struct {
 	version      ImageVersion
 	signingRSA   *rsa.PrivateKey
 	signingEC    *ecdsa.PrivateKey
-	bootable     bool
 	keyId        uint8
 	hash         []byte
 }
@@ -139,13 +138,12 @@ type ECDSASig struct {
 	S *big.Int
 }
 
-func NewImage(b *builder.Builder, bootable bool) (*Image, error) {
+func NewImage(b *builder.Builder) (*Image, error) {
 	image := &Image{}
 
 	image.sourceBin = b.AppElfPath() + ".bin"
 	image.targetImg = b.AppImgPath()
 	image.manifestFile = b.AppPath() + "manifest.json"
-	image.bootable = bootable
 	return image, nil
 }
 
@@ -248,7 +246,7 @@ func (image *Image) SetSigningKey(fileName string, keyId uint8) error {
 	return nil
 }
 
-func (image *Image) Generate() error {
+func (image *Image) Generate(loader *Image) error {
 	binFile, err := os.Open(image.sourceBin)
 	if err != nil {
 		return util.NewNewtError(fmt.Sprintf("Can't open app binary: %s",
@@ -275,6 +273,14 @@ func (image *Image) Generate() error {
 	 */
 	hash := sha256.New()
 
+	if loader != nil {
+		err = binary.Write(hash, binary.LittleEndian, image.hash)
+		if err != nil {
+			return util.NewNewtError(fmt.Sprintf("Failed to seed hash: %s",
+				err.Error()))
+		}
+	}
+
 	/*
 	 * First the header
 	 */
@@ -290,19 +296,23 @@ func (image *Image) Generate() error {
 		Vers:  image.version,
 		Pad3:  0,
 	}
+
 	if image.signingRSA != nil {
-		hdr.TlvSz = 4 + 256 + 4 + 32
-		hdr.Flags = IMAGE_F_PKCS15_RSA2048_SHA256 | IMAGE_F_SHA256
+		hdr.TlvSz = 4 + 256
+		hdr.Flags = IMAGE_F_PKCS15_RSA2048_SHA256
 		hdr.KeyId = image.keyId
 	} else if image.signingEC != nil {
-		hdr.TlvSz = 4 + 68 + 4 + 32
-		hdr.Flags = IMAGE_F_ECDSA224_SHA256 | IMAGE_F_SHA256
+		hdr.TlvSz = 4 + 68
+		hdr.Flags = IMAGE_F_ECDSA224_SHA256
 	} else {
 		hdr.TlvSz = 4 + 32
 		hdr.Flags = IMAGE_F_SHA256
 	}
 
-	if !image.bootable {
+	hdr.TlvSz += 4 + 32
+	hdr.Flags |= IMAGE_F_SHA256
+
+	if loader != nil {
 		hdr.Flags |= IMAGE_F_NON_BOOTABLE
 	}
 
@@ -435,7 +445,11 @@ func (image *Image) Generate() error {
 	return nil
 }
 
-func CreateManifest(t *builder.TargetBuilder, app *Image, loader *Image) error {
+func CreateBuildId(app *Image, loader *Image) []byte {
+	return app.hash
+}
+
+func CreateManifest(t *builder.TargetBuilder, app *Image, loader *Image, build_id []byte) error {
 	versionStr := fmt.Sprintf("%d.%d.%d.%d",
 		app.version.Major, app.version.Minor,
 		app.version.Rev, app.version.BuildNum)
@@ -456,9 +470,6 @@ func CreateManifest(t *builder.TargetBuilder, app *Image, loader *Image) error {
 		manifest.Pkgs = append(manifest.Pkgs, imgPkg)
 	}
 
-	hash := sha256.New()
-	hash.Write(app.hash)
-
 	if loader != nil {
 		manifest.Loader = filepath.Base(loader.targetImg)
 		manifest.LoaderHash = fmt.Sprintf("%x", loader.hash)
@@ -469,11 +480,8 @@ func CreateManifest(t *builder.TargetBuilder, app *Image, loader *Image) error {
 			}
 			manifest.LoaderPkgs = append(manifest.LoaderPkgs, imgPkg)
 		}
-
-		hash.Write(loader.hash)
 	}
 
-	build_id := hash.Sum(nil)
 	manifest.BuildID = fmt.Sprintf("%x", build_id)
 
 	vars := t.GetTarget().Vars

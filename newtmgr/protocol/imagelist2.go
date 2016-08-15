@@ -30,7 +30,6 @@ type Image2 struct {
 	Slot     int    `json:"slot"`
 	Version  string `json:"version"`
 	Hash     string `json:"hash"`
-	BuildId  string `json:"build_id"`
 	Bootable bool   `json:"bootable"`
 }
 

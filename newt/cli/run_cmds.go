@@ -62,26 +62,29 @@ func runRunCmd(cmd *cobra.Command, args []string) {
 	var loader_img *image.Image
 	if len(args) > 1 {
 		if b.Loader == nil {
-			err, app_img = CreateImage(b.App, args[1], "", 0, true)
+			err, app_img = CreateImage(b.App, args[1], "", 0, nil)
 			if err != nil {
 				NewtUsage(cmd, err)
 			}
 		} else {
-			err, app_img = CreateImage(b.App, args[1], "", 0, false)
+			err, loader_img = CreateImage(b.Loader, args[1], "", 0, nil)
 			if err != nil {
 				NewtUsage(cmd, err)
 			}
-			err, loader_img = CreateImage(b.Loader, args[1], "", 0, true)
+			err, app_img = CreateImage(b.App, args[1], "", 0, loader_img)
 			if err != nil {
 				NewtUsage(cmd, err)
 			}
+
 		}
 	} else {
 		os.Remove(b.App.AppImgPath())
 		os.Remove(b.Loader.AppImgPath())
 	}
 
-	err = image.CreateManifest(b, app_img, loader_img)
+	build_id := image.CreateBuildId(app_img, loader_img)
+
+	err = image.CreateManifest(b, app_img, loader_img, build_id)
 	if err != nil {
 		NewtUsage(cmd, err)
 	}

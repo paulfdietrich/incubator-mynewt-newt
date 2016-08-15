@@ -30,10 +30,10 @@ import (
 )
 
 func CreateImage(b *builder.Builder, version string,
-	keystr string, keyId uint8, bootable bool) (error, *image.Image) {
+	keystr string, keyId uint8, loader *image.Image) (error, *image.Image) {
 
 	/* do the app image */
-	app_image, err := image.NewImage(b, bootable)
+	app_image, err := image.NewImage(b)
 	if err != nil {
 		return err, nil
 	}
@@ -50,7 +50,7 @@ func CreateImage(b *builder.Builder, version string,
 		}
 	}
 
-	err = app_image.Generate()
+	err = app_image.Generate(loader)
 	if err != nil {
 		return err, nil
 	}
@@ -108,25 +108,28 @@ func createImageRunCmd(cmd *cobra.Command, args []string) {
 	var loader_img *image.Image
 
 	if b.Loader == nil {
-		err, app_img = CreateImage(b.App, version, keystr, keyId, true)
+		err, app_img = CreateImage(b.App, version, keystr, keyId, nil)
 		if err != nil {
 			NewtUsage(cmd, err)
 			return
 		}
 	} else {
-		err, app_img = CreateImage(b.App, version, keystr, keyId, false)
+		err, loader_img = CreateImage(b.Loader, version, keystr, keyId, nil)
 		if err != nil {
 			NewtUsage(cmd, err)
 			return
 		}
-		err, loader_img = CreateImage(b.Loader, version, keystr, keyId, true)
+
+		err, app_img = CreateImage(b.App, version, keystr, keyId, loader_img)
 		if err != nil {
 			NewtUsage(cmd, err)
 			return
 		}
+
 	}
 
-	err = image.CreateManifest(b, app_img, loader_img)
+	build_id := image.CreateBuildId(app_img, loader_img)
+	err = image.CreateManifest(b, app_img, loader_img, build_id)
 }
 
 func AddImageCommands(cmd *cobra.Command) {

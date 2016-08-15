@@ -128,7 +128,6 @@ func imageListCmd2(cmd *cobra.Command, args []string) {
 		fmt.Printf(" slot=%d\n", img.Slot)
 		fmt.Printf("    version=%s\n", img.Version)
 		fmt.Printf("    bootable=%v\n", img.Bootable)
-		fmt.Printf("    build_id=%s\n", img.BuildId)
 		fmt.Printf("    hash=%s\n", img.Hash)
 	}
 }

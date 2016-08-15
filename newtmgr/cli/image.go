@@ -673,6 +673,8 @@ func splitCmd(cmd *cobra.Command, args []string) {
 
 	if len(args) == 0 {
 		fmt.Printf("Split value is %s\n", srsp.Split)
+		fmt.Printf("Split status is %s\n", srsp.Status)
+
 	}
 	if srsp.ReturnCode != 0 {
 		fmt.Printf("Error executing split command: rc=%d\n", srsp.ReturnCode)

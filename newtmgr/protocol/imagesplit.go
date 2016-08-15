@@ -35,11 +35,7 @@ const (
 	RUN
 )
 
-var splitMode = [...]string{
-	"none",
-	"test",
-	"run",
-}
+var splitMode = [...]string{NONE: "none", TEST: "test", RUN: "run"}
 
 /* is the enum valid */
 func (sm SplitMode) Valid() bool {
@@ -59,6 +55,14 @@ func (sm SplitMode) String() string {
 	return splitMode[sm]
 }
 
+type SplitStatus int
+
+const (
+	NOT_APPLICABLE SplitStatus = iota
+	NOT_MATCHING
+	MATCHING
+)
+
 /* parses the enum from a string */
 func ParseSplitMode(str string) (SplitMode, error) {
 	for val, key := range splitMode {
@@ -69,9 +73,40 @@ func ParseSplitMode(str string) (SplitMode, error) {
 	return NONE, util.NewNewtError("Invalid value for Split Mode %v" + str)
 }
 
+var splitStatus = [...]string{NOT_APPLICABLE: "N/A", NOT_MATCHING: "Non-matching", MATCHING: "matching"}
+
+/* is the enum valid */
+func (sm SplitStatus) Valid() bool {
+	for val, _ := range splitStatus {
+		if int(sm) == val {
+			return true
+		}
+	}
+	return false
+}
+
+/* returns the enum as a string */
+func (sm SplitStatus) String() string {
+	if sm > MATCHING || sm < 0 {
+		return "Unknown!"
+	}
+	return splitStatus[sm]
+}
+
+/* parses the enum from a string */
+func ParseSplitStatus(str string) (SplitStatus, error) {
+	for val, key := range splitStatus {
+		if strings.EqualFold(key, str) {
+			return SplitStatus(val), nil
+		}
+	}
+	return NOT_APPLICABLE, util.NewNewtError("Invalid value for Split Status %v" + str)
+}
+
 type Split struct {
-	Split      SplitMode `json:"splitMode"`
-	ReturnCode int       `json:"rc"`
+	Split      SplitMode   `json:"splitMode"`
+	Status     SplitStatus `json:"splitStatus"`
+	ReturnCode int         `json:"rc"`
 }
 
 func NewSplit() (*Split, error) {

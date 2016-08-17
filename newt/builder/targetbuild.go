@@ -268,13 +268,17 @@ func (t *TargetBuilder) buildRomElf() error {
 		return err
 	}
 
-	union_sm := symbol.IdenticalUnion(loader_sm, app_sm, true)
+	err, union_sm := symbol.IdenticalUnion(loader_sm, app_sm, true)
+	if err != nil {
+		return err
+	}
 
 	/* handle special symbols */
 
 	/* Make sure this is not shared as this is what links in the
 	 * entire application (essential the root of the function tree */
 	union_sm.Remove("Reset_Handler")
+	union_sm.Remove("_start")
 
 	/* slurp in all symbols from the actual loader binary */
 	err, loader_elf_sm := t.Loader.ParseObjectElf()
@@ -282,7 +286,10 @@ func (t *TargetBuilder) buildRomElf() error {
 		return err
 	}
 
-	final_sm := symbol.IdenticalUnion(union_sm, loader_elf_sm, false)
+	err, final_sm := symbol.IdenticalUnion(union_sm, loader_elf_sm, false)
+	if err != nil {
+		return err
+	}
 
 	/* NOTE: there are a few special symbols that we need the split
 	 * application to know about  */
@@ -295,9 +302,15 @@ func (t *TargetBuilder) buildRomElf() error {
 	final_sm.Add(*symbol.NewElfSymbol("__etext"))
 	final_sm.Add(*symbol.NewElfSymbol("__data_start__"))
 	final_sm.Add(*symbol.NewElfSymbol("__data_end__"))
+
+	/* the two apps share a common relocatable vector table */
 	final_sm.Add(*symbol.NewElfSymbol("__vector_tbl_reloc__"))
 	final_sm.Add(*symbol.NewElfSymbol("__isr_vector_end"))
 	final_sm.Add(*symbol.NewElfSymbol("__isr_vector_start"))
+
+	/* the two apps share a common sbrk routine */
+	final_sm.Add(*symbol.NewElfSymbol("_sbrk"))
+	final_sm.Add(*symbol.NewElfSymbol("_sbrkInit"))
 
 	err = t.Loader.CopySymbols(final_sm)
 	if err != nil {

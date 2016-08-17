@@ -61,10 +61,13 @@ func (s *SymbolMap) Add(info SymbolInfo) {
 	(*s)[info.Name] = info
 }
 
-func IdenticalUnion(s1 *SymbolMap, s2 *SymbolMap, comparePkg bool) *SymbolMap {
+func IdenticalUnion(s1 *SymbolMap, s2 *SymbolMap, comparePkg bool) (error, *SymbolMap) {
 	s3 := NewSymbolMap()
+	var err_str string
+	var err error
 	/* look through all symbols in S1 and if they are in s1,
 	 * add to new map s3 */
+
 	for name, info1 := range *s1 {
 		if info2, ok := (*s2)[name]; ok {
 			var pkg bool
@@ -78,10 +81,34 @@ func IdenticalUnion(s1 *SymbolMap, s2 *SymbolMap, comparePkg bool) *SymbolMap {
 			if info1.Code == info2.Code &&
 				info1.Size == info2.Size && pkg {
 				s3.Add(info1)
+			} else if !info1.IsLocal() && !info1.IsFunction() {
+				/* Here is an unusual case.  We have a global data
+				 * symbol (bss or data) with the same name that is used
+				 * in both apps.  If code is linked against both of these
+				 * the code in the loader will call one while the code in
+				 * the app will call the other.  If the intention was for
+				 * these to be the same, then things are bad.  */
+				if err_str == "" {
+					err_str = "There are global symbols with the same name that " +
+						"are access via the loader and split application.  These " +
+						"symbols are either different sizes or from different " +
+						"packages.  Reconcile this issue before buidling.  If the " +
+						"symbols are intended to be shared by both, move the " +
+						"symbol to a package that is shared by both apps. If " +
+						"the symbols are distict (not shared), then make them " +
+						"static or rename them so they do not conflict" +
+						"\nNon Matching Symbols:\n"
+				}
+
+				err_str = err_str + fmt.Sprintf("%s-%s\n", info1.Sprintf(), info2.Sprintf())
 			}
 		}
 	}
-	return s3
+
+	if err_str != "" {
+		err = util.NewNewtError(err_str)
+	}
+	return err, s3
 }
 
 type SymbolMapIterator func(s *SymbolInfo)
@@ -92,14 +119,23 @@ func (s *SymbolMap) Iterate(iter SymbolMapIterator) {
 	}
 }
 
-func dumpSi(si *SymbolInfo) {
-	fmt.Printf("  %s(%s) (%s) -- (%s) %d (%d) from %s\n",
+func sprintfSi(si *SymbolInfo) string {
+	str := fmt.Sprintf("  %s(%s) (%s) -- (%s) %d (%d) from %s\n",
 		(*si).Name, (*si).Ext, (*si).Code, (*si).Section,
 		(*si).Size, (*si).Loc, (*si).Bpkg)
+	return str
+}
+
+func dumpSi(si *SymbolInfo) {
+	fmt.Println(sprintfSi(si))
 }
 
 func (si *SymbolInfo) Dump() {
 	dumpSi(si)
+}
+
+func (si *SymbolInfo) Sprintf() string {
+	return sprintfSi(si)
 }
 
 func (si *SymbolInfo) IsLocal() bool {
@@ -138,6 +174,15 @@ func (si *SymbolInfo) IsFile() bool {
 	val := (*si).Code[6:7]
 
 	if val == "f" {
+		return true
+	}
+	return false
+}
+
+func (si *SymbolInfo) IsFunction() bool {
+	val := (*si).Code[6:7]
+
+	if val == "F" {
 		return true
 	}
 	return false

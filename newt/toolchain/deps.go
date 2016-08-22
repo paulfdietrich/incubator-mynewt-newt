@@ -318,7 +318,7 @@ func (tracker *DepTracker) LinkRequired(dstFile string,
 
 	// If the elf file was previously built with a different set of options, a
 	// rebuild is required.
-	cmd := tracker.compiler.CompileBinaryCmd(dstFile, options, objFiles, elfLib)
+	cmd := tracker.compiler.CompileBinaryCmd(dstFile, options, objFiles, nil, elfLib)
 	if commandHasChanged(dstFile, cmd) {
 		util.StatusMessage(util.VERBOSITY_VERBOSE, "%s - link required; "+
 			"different command\n", dstFile)

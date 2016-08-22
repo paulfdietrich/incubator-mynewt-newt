@@ -20,7 +20,6 @@
 package toolchain
 
 import (
-	"bytes"
 	"io/ioutil"
 	"os"
 	"path"
@@ -634,11 +633,15 @@ func (c *Compiler) getObjFiles(baseObjFiles []string) string {
 //
 // @return                      (success) The command string.
 func (c *Compiler) CompileBinaryCmd(dstFile string, options map[string]bool,
-	objFiles []string, elfLib string) string {
+	objFiles []string, keepSymbols []string, elfLib string) string {
 
 	objList := c.getObjFiles(util.UniqueStrings(objFiles))
 
 	cmd := c.ccPath + " -o " + dstFile + " " + " " + c.cflagsString()
+
+	if elfLib != "" {
+		cmd += " -Wl,--just-symbols=" + elfLib
+	}
 
 	if c.ldResolveCircularDeps {
 		cmd += " -Wl,--start-group " + objList + " -Wl,--end-group "
@@ -646,8 +649,10 @@ func (c *Compiler) CompileBinaryCmd(dstFile string, options map[string]bool,
 		cmd += " " + objList
 	}
 
-	if elfLib != "" {
-		cmd += " -Wl,--just-symbols=" + elfLib
+	if keepSymbols != nil {
+		for _, name := range keepSymbols {
+			cmd += " -Wl,--undefined=" + name
+		}
 	}
 
 	cmd += " " + c.lflagsString()
@@ -673,7 +678,7 @@ func (c *Compiler) CompileBinaryCmd(dstFile string, options map[string]bool,
 //                                  gets generated.
 // @param objFiles              An array of the source .o and .a filenames.
 func (c *Compiler) CompileBinary(dstFile string, options map[string]bool,
-	objFiles []string, elfLib string) error {
+	objFiles []string, keepSymbols []string, elfLib string) error {
 
 	// Make sure the compiler package info is added to the global set.
 	c.ensureLclInfoAdded()
@@ -689,7 +694,7 @@ func (c *Compiler) CompileBinary(dstFile string, options map[string]bool,
 			dstFile, elfLib)
 	}
 
-	cmd := c.CompileBinaryCmd(dstFile, options, objFiles, elfLib)
+	cmd := c.CompileBinaryCmd(dstFile, options, objFiles, keepSymbols, elfLib)
 	_, err := util.ShellCommand(cmd)
 	if err != nil {
 		return err
@@ -778,7 +783,8 @@ func (c *Compiler) PrintSize(elfFilename string) (string, error) {
 // @param options               Some build options specifying how the elf file
 //                                  gets generated.
 // @param objFiles              An array of the source .o and .a filenames.
-func (c *Compiler) CompileElf(binFile string, objFiles []string, elfLib string) error {
+func (c *Compiler) CompileElf(binFile string, objFiles []string,
+	keepSymbols []string, elfLib string) error {
 	options := map[string]bool{"mapFile": c.ldMapFile,
 		"listFile": true, "binFile": c.ldBinFile}
 
@@ -793,7 +799,7 @@ func (c *Compiler) CompileElf(binFile string, objFiles []string, elfLib string) 
 		if err := os.MkdirAll(filepath.Dir(binFile), 0755); err != nil {
 			return util.NewNewtError(err.Error())
 		}
-		err := c.CompileBinary(binFile, options, objFiles, elfLib)
+		err := c.CompileBinary(binFile, options, objFiles, keepSymbols, elfLib)
 		if err != nil {
 			return err
 		}
@@ -805,17 +811,6 @@ func (c *Compiler) CompileElf(binFile string, objFiles []string, elfLib string) 
 	}
 
 	return nil
-}
-
-func (c *Compiler) WeakenSymbolsCmd(sm *symbol.SymbolMap, libraryFile string) string {
-	val := c.ocPath
-
-	for s, _ := range *sm {
-		val += " -W " + s
-	}
-
-	val += " " + libraryFile
-	return val
 }
 
 func (c *Compiler) RenameSymbolsCmd(sm *symbol.SymbolMap, libraryFile string, ext string) string {
@@ -1027,133 +1022,12 @@ func ParseObjectLine(line string, r *regexp.Regexp) (error, *symbol.SymbolInfo) 
 	return nil, si
 }
 
-func (c *Compiler) ParseObjectLibraryFile(file string, textDataOnly bool) (error, *symbol.SymbolMap) {
-
-	ext := filepath.Ext(file)
-
-	err, out := c.ParseLibrary(file)
-
-	if err != nil {
-		return err, nil
-	}
-
-	sm := symbol.NewSymbolMap()
-
-	buffer := bytes.NewBuffer(out)
-
-	err, r := getParseRexeg()
-
-	if err != nil {
-		return err, nil
-	}
-
-	for {
-		line, err := buffer.ReadString('\n')
-		if err != nil {
-			break
-		}
-		err, si := ParseObjectLine(line, r)
-
-		if err == nil && si != nil {
-
-			/*  discard undefined */
-			if (*si).IsSection("*UND*") {
-				continue
-			}
-
-			/* discard debug symbols */
-			if (*si).IsDebug() {
-				continue
-			}
-
-			if (*si).IsFile() {
-				continue
-			}
-
-			/* if we are looking for text and data only, do a special check */
-			if textDataOnly {
-				include := (*si).IsSection(".bss") ||
-					(*si).IsSection(".text") ||
-					(*si).IsSection(".data") ||
-					(*si).IsSection("*COM*") ||
-					(*si).IsSection(".rodata")
-
-				if !include {
-					continue
-				}
-			}
-
-			/* add the symbol to the map */
-			(*si).Ext = ext
-			sm.Add(*si)
-			util.StatusMessage(util.VERBOSITY_VERBOSE,
-				"Keeping Symbol %s in package %s\n", (*si).Name, (*si).Bpkg)
-		}
-	}
-
-	return nil, sm
-}
-
-func (c *Compiler) WeakenSymbol(sm *symbol.SymbolMap, libraryFile string) error {
-
-	cmd := c.WeakenSymbolsCmd(sm, libraryFile)
-
-	_, err := util.ShellCommand(cmd)
-
-	return err
-}
 func (c *Compiler) RenameSymbols(sm *symbol.SymbolMap, libraryFile string, ext string) error {
 
 	cmd := c.RenameSymbolsCmd(sm, libraryFile, ext)
 
 	_, err := util.ShellCommand(cmd)
 
-	return err
-}
-
-// calculates the command-line invocation necessary to build a split all
-// archive from the collection of archive files
-func (c *Compiler) BuildCopyArchiveCmd(archiveFile string, iFile string) string {
-
-	str := c.ocPath + " " + iFile + " " + archiveFile
-	return str
-}
-
-// Archives the specified static library.
-//
-// @param archiveFile           The filename of the library to archive.
-// @param objFiles              An array of the source .o filenames.
-func (c *Compiler) BuildTrimmedArchive(archiveFile string, iFile string,
-	elfLib string, sm *symbol.SymbolMap) error {
-
-	arRequired, err := c.depTracker.TrimmedArchiveRequired(archiveFile, iFile, elfLib)
-	if err != nil {
-		return err
-	}
-	if !arRequired {
-		return nil
-	}
-
-	if err := os.MkdirAll(filepath.Dir(archiveFile), 0755); err != nil {
-		return util.NewNewtError(err.Error())
-	}
-
-	// Delete the old archive, if it exists.
-	err = os.Remove(archiveFile)
-	if err != nil && !os.IsNotExist(err) {
-		return util.NewNewtError(err.Error())
-	}
-
-	err = newtutil.CopyFile(archiveFile, iFile)
-	if err != nil {
-		return err
-	}
-
-	if elfLib != "" {
-		util.StatusMessage(util.VERBOSITY_DEFAULT, "Trimming %s\n",
-			path.Base(archiveFile))
-		err = c.WeakenSymbol(sm, archiveFile)
-	}
 	return err
 }
 

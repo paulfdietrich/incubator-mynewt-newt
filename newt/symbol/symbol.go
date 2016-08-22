@@ -23,6 +23,7 @@ package symbol
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"mynewt.apache.org/newt/util"
@@ -61,8 +62,40 @@ func (s *SymbolMap) Add(info SymbolInfo) {
 	(*s)[info.Name] = info
 }
 
-func IdenticalUnion(s1 *SymbolMap, s2 *SymbolMap, comparePkg bool) (error, *SymbolMap) {
+func (s *SymbolMap) GlobalFunctionsOnly() *SymbolMap {
 	s3 := NewSymbolMap()
+
+	for _, info1 := range *s {
+		if info1.IsFunction() && !info1.IsLocal() {
+			s3.Add(info1)
+		}
+	}
+	return s3
+}
+
+func (s *SymbolMap) GlobalDataOnly() *SymbolMap {
+	s3 := NewSymbolMap()
+
+	for _, info1 := range *s {
+		if !info1.IsFunction() && !info1.IsLocal() {
+			s3.Add(info1)
+		}
+	}
+	return s3
+}
+
+func (s *SymbolMap) Packages() map[string]bool {
+	pkg := make(map[string]bool)
+	for _, info1 := range *s {
+		pkg[info1.Bpkg] = true
+	}
+	return pkg
+}
+
+func IdenticalUnion(s1 *SymbolMap, s2 *SymbolMap, comparePkg bool,
+	compareAddr bool) (error, *SymbolMap, *SymbolMap) {
+	s3 := NewSymbolMap()
+	s_no := NewSymbolMap()
 	var err_str string
 	var err error
 	/* look through all symbols in S1 and if they are in s1,
@@ -71,15 +104,23 @@ func IdenticalUnion(s1 *SymbolMap, s2 *SymbolMap, comparePkg bool) (error, *Symb
 	for name, info1 := range *s1 {
 		if info2, ok := (*s2)[name]; ok {
 			var pkg bool
+			var addr bool
 
 			if comparePkg {
 				pkg = info1.Bpkg == info2.Bpkg
 			} else {
 				pkg = true
 			}
+
+			if compareAddr {
+				addr = info1.Loc == info2.Loc
+			} else {
+				addr = true
+			}
+
 			/* compare to info 1 */
 			if info1.Code == info2.Code &&
-				info1.Size == info2.Size && pkg {
+				info1.Size == info2.Size && pkg && addr {
 				s3.Add(info1)
 			} else if !info1.IsLocal() && !info1.IsFunction() {
 				/* Here is an unusual case.  We have a global data
@@ -101,6 +142,11 @@ func IdenticalUnion(s1 *SymbolMap, s2 *SymbolMap, comparePkg bool) (error, *Symb
 				}
 
 				err_str = err_str + fmt.Sprintf("%s-%s\n", info1.Sprintf(), info2.Sprintf())
+			} else {
+				info1.Name = info1.Name + "-app"
+				info2.Name = info2.Name + "-loader"
+				s_no.Add(info1)
+				s_no.Add(info2)
 			}
 		}
 	}
@@ -108,26 +154,20 @@ func IdenticalUnion(s1 *SymbolMap, s2 *SymbolMap, comparePkg bool) (error, *Symb
 	if err_str != "" {
 		err = util.NewNewtError(err_str)
 	}
-	return err, s3
+	return err, s3, s_no
 }
 
 type SymbolMapIterator func(s *SymbolInfo)
 
-func (s *SymbolMap) Iterate(iter SymbolMapIterator) {
-	for _, info1 := range *s {
-		iter(&info1)
-	}
-}
-
 func sprintfSi(si *SymbolInfo) string {
-	str := fmt.Sprintf("  %s(%s) (%s) -- (%s) %d (%d) from %s\n",
+	str := fmt.Sprintf("  %32s(%4s) (%8s) -- (%12s) %5d (0x%08x) from %s\n",
 		(*si).Name, (*si).Ext, (*si).Code, (*si).Section,
 		(*si).Size, (*si).Loc, (*si).Bpkg)
 	return str
 }
 
 func dumpSi(si *SymbolInfo) {
-	fmt.Println(sprintfSi(si))
+	fmt.Printf(sprintfSi(si))
 }
 
 func (si *SymbolInfo) Dump() {
@@ -188,9 +228,31 @@ func (si *SymbolInfo) IsFunction() bool {
 	return false
 }
 
+func (s *SymbolMap) FilterPkg(pname string) *SymbolMap {
+	sm := NewSymbolMap()
+	for _, info1 := range *s {
+		if pname != "" && pname == info1.Bpkg {
+			sm.Add(info1)
+		}
+	}
+	return sm
+}
+
 func (s *SymbolMap) Dump(name string) {
+
+	// To store the keys in slice in sorted order
+	var keys []string
+	for k := range *s {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	// To perform the opertion you want
 	fmt.Printf("Dumping symbols in file: %s\n", name)
-	s.Iterate(dumpSi)
+	for _, k := range keys {
+		info1 := (*s)[k]
+		info1.Dump()
+	}
 }
 
 // Merge - merges given maps into 1 map

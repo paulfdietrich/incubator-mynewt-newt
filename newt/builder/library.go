@@ -119,10 +119,8 @@ func (b *Builder) ParseObjectLibrary(bp *BuildPackage) (error, *symbol.SymbolMap
 	return b.ParseObjectLibraryFile(bp, file, true)
 }
 
-func (b *Builder) ParseObjectElf() (error, *symbol.SymbolMap) {
-
-	file := b.AppElfPath()
-	return b.ParseObjectLibraryFile(nil, file, false)
+func (b *Builder) ParseObjectElf(elf_file string) (error, *symbol.SymbolMap) {
+	return b.ParseObjectLibraryFile(nil, elf_file, false)
 }
 
 func (b *Builder) ParseObjectLibraryFile(bp *BuildPackage,

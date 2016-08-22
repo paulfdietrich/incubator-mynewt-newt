@@ -20,6 +20,8 @@
 package builder
 
 import (
+	"fmt"
+
 	"mynewt.apache.org/newt/newt/interfaces"
 	"mynewt.apache.org/newt/newt/pkg"
 	"mynewt.apache.org/newt/newt/project"
@@ -125,10 +127,8 @@ func (t *TargetBuilder) PrepBuild() error {
 	err = t.App.PrepBuild(appPkg, bsp_pkg, targetPkg)
 	if err != nil {
 		return err
-	}
 
-	/* if this is a split application, add a compiler define. By specifying
-	 * a loader they have declared it to be a split app */
+	}
 	if loaderPkg != nil {
 		app_flag := toolchain.NewCompilerInfo()
 		app_flag.Cflags = append(app_flag.Cflags, "-DSPLIT_APPLICATION")
@@ -152,33 +152,6 @@ func (t *TargetBuilder) Build() error {
 		return err
 	}
 
-	if t.Loader != nil {
-		project.ResetDeps(t.LoaderList)
-
-		if err = t.Bsp.Reload(t.Loader.Features(t.Loader.BspPkg)); err != nil {
-			return err
-		}
-
-		err = t.Loader.Build()
-
-		if err != nil {
-			return err
-		}
-
-		/* build a combined app archive to link against */
-		err = t.Loader.BuildTrimmedArchives()
-		if err != nil {
-			return err
-		}
-
-		/* perform the final link */
-		err = t.Loader.Link(t.Bsp.LinkerScript)
-
-		if err != nil {
-			return err
-		}
-	}
-
 	/* Build the Apps */
 	project.ResetDeps(t.AppList)
 
@@ -187,42 +160,169 @@ func (t *TargetBuilder) Build() error {
 	}
 
 	err = t.App.Build()
+	if err != nil {
+		return err
+	}
+
+	/* if we have no loader, we are done here.  All of the rest of this
+	 * function is for split images */
+	if t.Loader == nil {
+		err = t.App.Link(t.Bsp.LinkerScript)
+		return err
+	}
+
+	err = t.App.TestLink(t.Bsp.LinkerScript)
+	if err != nil {
+		return err
+	}
+
+	/* fetch symbols from the elf and from the libraries themselves */
+	err, appLibSym := t.App.ExtractSymbolInfo()
+	if err != nil {
+		return err
+	}
+
+	err, appElfSym := t.App.ParseObjectElf(t.App.AppTempElfPath())
+	if err != nil {
+		return err
+	}
+
+	project.ResetDeps(t.LoaderList)
+
+	if err = t.Bsp.Reload(t.Loader.Features(t.Loader.BspPkg)); err != nil {
+		return err
+	}
+
+	err = t.Loader.Build()
 
 	if err != nil {
 		return err
 	}
 
-	if t.Loader != nil {
-		err = t.buildRomElf()
-		if err != nil {
-			return err
+	/* perform the final link */
+	err = t.Loader.TestLink(t.Bsp.LinkerScript)
+
+	if err != nil {
+		return err
+	}
+
+	err, loaderLibSym := t.Loader.ExtractSymbolInfo()
+	if err != nil {
+		return err
+	}
+
+	err, loaderElfSym := t.Loader.ParseObjectElf(t.Loader.AppTempElfPath())
+	if err != nil {
+		return err
+	}
+
+	err, sm_match, sm_nomatch := symbol.IdenticalUnion(appLibSym, loaderLibSym, true, false)
+	fmt.Println(len(*sm_match), " symbols matched in library files ")
+
+	/* which packages are shared between the two */
+	common_pkgs := sm_match.Packages()
+	uncommon_pkgs := sm_nomatch.Packages()
+
+	for v, _ := range uncommon_pkgs {
+		if t.App.appPkg != nil && t.App.appPkg.Name() != v &&
+			t.Loader.appPkg != nil && t.Loader.appPkg.Name() != v {
+			trouble := sm_nomatch.FilterPkg(v)
+
+			header := true
+			for _, sym := range *trouble {
+				if !sym.IsLocal() {
+					if header {
+						fmt.Println("We have non-matching global symbols in ", v)
+						header = false
+					}
+					sym.Dump()
+				}
+			}
+
+			if !header {
+				fmt.Println("We cannot combine package ", v, " between app and loader ")
+				delete(common_pkgs, v)
+				return util.NewNewtError("Common package has different implementaiton")
+			}
 		}
-
-		t.App.LinkElf = t.Loader.AppLinkerElfPath()
-		linkerScript = t.Bsp.Part2LinkerScript
-	} else {
-		linkerScript = t.Bsp.LinkerScript
 	}
 
-	/* now do a Pre-link/Post archive on the application */
-	err = t.App.BuildTrimmedArchives()
+	/* The app can ignore these packages next time */
+	t.App.RemovePackages(common_pkgs)
+
+	/* add back the BSP package which needs linking in both */
+	t.App.AddPackage(t.Bsp.LocalPackage)
+
+	/* for each symbol in the elf of the app, if that symbol is in
+	 * a common package, keep that symbol in the loader */
+	preserve_elf := symbol.NewSymbolMap()
+
+	/* go through each symbol in the app */
+	for _, elfsym := range *appElfSym {
+		name := elfsym.Name
+		if libsym, ok := (*appLibSym)[name]; ok {
+			if _, ok := common_pkgs[libsym.Bpkg]; ok {
+				/* if its not in the loader elf, add it as undefined */
+				if _, ok := (*loaderElfSym)[name]; !ok {
+					preserve_elf.Add(elfsym)
+				}
+			}
+		}
+	}
+
+	/* re-link loader */
+	project.ResetDeps(t.LoaderList)
+
+	/* perform the final link of the loader */
+	fmt.Println("Migrating ", len(*preserve_elf), " symbols to Loader")
+	preserve_elf.Dump("Preserving")
+	err = t.Loader.KeepLink(t.Bsp.LinkerScript, preserve_elf)
 
 	if err != nil {
 		return err
 	}
+
+	/* create the special elf to link the app against */
+	/* its just the elf with a set of symbols removed and renamed */
+	err = t.buildRomElf()
+	if err != nil {
+		return err
+	}
+
+	t.App.LinkElf = t.Loader.AppLinkerElfPath()
+
+	linkerScript = t.Bsp.Part2LinkerScript
 
 	if linkerScript == "" {
 		return util.NewNewtError("BSP Must specify Linker script ")
 	}
-	// link the loader elf into the application. This has to be treated as
-	// special (not just another object) because we have to link the whole
-	// library into it
+
+	t.App.LinkElf = t.Loader.AppLinkerElfPath()
 	err = t.App.Link(linkerScript)
+
 	if err != nil {
 		return err
 	}
 
-	return err
+	/* some debug to dump out the interesting stuff from the elfs */
+	err, final_ap_sm := t.App.ParseObjectLibraryFile(nil, t.App.AppElfPath(), false)
+
+	if err != nil {
+		return err
+	}
+
+	err, final_loader_sm := t.Loader.ParseObjectLibraryFile(nil, t.Loader.AppElfPath(), false)
+
+	if err != nil {
+		return err
+	}
+
+	err, sm_match, sm_nomatch = symbol.IdenticalUnion(final_ap_sm, final_loader_sm, true, true)
+
+	sm_nomatch.GlobalDataOnly().Dump("non matching Global Data symbols")
+	sm_nomatch.GlobalFunctionsOnly().Dump("non matching Global Code symbols")
+
+	return nil
 }
 
 func (t *TargetBuilder) buildRomElf() error {
@@ -239,8 +339,8 @@ func (t *TargetBuilder) buildRomElf() error {
 	archNames := []string{}
 
 	/* build the set of archive file names */
-	for _, bpkg := range t.App.Packages {
-		archivePath := t.App.ArchivePath(bpkg.Name())
+	for _, bpkg := range t.Loader.Packages {
+		archivePath := t.Loader.ArchivePath(bpkg.Name())
 		if util.NodeExist(archivePath) {
 			archNames = append(archNames, archivePath)
 		}
@@ -258,17 +358,8 @@ func (t *TargetBuilder) buildRomElf() error {
 	util.StatusMessage(util.VERBOSITY_DEFAULT,
 		"Generating ROM elf \n")
 
-	err, app_sm := t.App.FetchSymbolMap()
-	if err != nil {
-		return err
-	}
-
-	err, loader_sm := t.Loader.FetchSymbolMap()
-	if err != nil {
-		return err
-	}
-
-	err, union_sm := symbol.IdenticalUnion(loader_sm, app_sm, true)
+	/* slurp in all symbols from the actual loader binary */
+	err, loader_elf_sm := t.Loader.ParseObjectElf(t.Loader.AppElfPath())
 	if err != nil {
 		return err
 	}
@@ -277,42 +368,13 @@ func (t *TargetBuilder) buildRomElf() error {
 
 	/* Make sure this is not shared as this is what links in the
 	 * entire application (essential the root of the function tree */
-	union_sm.Remove("Reset_Handler")
-	union_sm.Remove("_start")
+	loader_elf_sm.Remove("main")
+	loader_elf_sm.Remove("_start")
+	loader_elf_sm.Remove("__StackTop")
+	loader_elf_sm.Remove("__HeapLimit")
+	loader_elf_sm.Remove("__StackLimit")
 
-	/* slurp in all symbols from the actual loader binary */
-	err, loader_elf_sm := t.Loader.ParseObjectElf()
-	if err != nil {
-		return err
-	}
-
-	err, final_sm := symbol.IdenticalUnion(union_sm, loader_elf_sm, false)
-	if err != nil {
-		return err
-	}
-
-	/* NOTE: there are a few special symbols that we need the split
-	 * application to know about  */
-
-	/* it was difficult to autogenerate these as they are hardcoded
-	 * in the linker,but both pieces of code need to use them */
-	final_sm.Add(*symbol.NewElfSymbol("__HeapBase"))
-	final_sm.Add(*symbol.NewElfSymbol("__bss_start__"))
-	final_sm.Add(*symbol.NewElfSymbol("__bss_end__"))
-	final_sm.Add(*symbol.NewElfSymbol("__etext"))
-	final_sm.Add(*symbol.NewElfSymbol("__data_start__"))
-	final_sm.Add(*symbol.NewElfSymbol("__data_end__"))
-
-	/* the two apps share a common relocatable vector table */
-	final_sm.Add(*symbol.NewElfSymbol("__vector_tbl_reloc__"))
-	final_sm.Add(*symbol.NewElfSymbol("__isr_vector_end"))
-	final_sm.Add(*symbol.NewElfSymbol("__isr_vector_start"))
-
-	/* the two apps share a common sbrk routine */
-	final_sm.Add(*symbol.NewElfSymbol("_sbrk"))
-	final_sm.Add(*symbol.NewElfSymbol("_sbrkInit"))
-
-	err = t.Loader.CopySymbols(final_sm)
+	err = t.Loader.CopySymbols(loader_elf_sm)
 	if err != nil {
 		return err
 	}
@@ -333,7 +395,6 @@ func (t *TargetBuilder) buildRomElf() error {
 	if err != nil {
 		return err
 	}
-
 	return nil
 }
 

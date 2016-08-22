@@ -304,43 +304,33 @@ func (b *Builder) buildPackage(bpkg *BuildPackage) error {
 	return nil
 }
 
-func (b *Builder) BuildTrimmedArchives() error {
+func (b *Builder) RemovePackages(cmn map[string]bool) error {
 
-	elf_rom_sm := symbol.NewSymbolMap()
-
-	if b.LinkElf != "" {
-		/* get the symbol map from the loader_elf */
-		c, err := b.newCompiler(b.appPkg, b.AppElfPath())
-		if err != nil {
-			return err
-		}
-		err, elf_rom_sm = c.ParseObjectLibraryFile(b.LinkElf, false)
-		if err != nil {
-			return err
-		}
-	}
-
-	/* For each library in the project, trim the library with the elf
-	 * symbols */
-	for _, bpkg := range b.Packages {
-		c, err := b.newCompiler(b.appPkg, b.PkgBinDir(bpkg.Name()))
-		if err != nil {
-			return err
-		}
-		apath := b.ArchivePath(bpkg.Name())
-		tpath := b.TrimmedArchivePath(bpkg.Name())
-		if util.NodeExist(apath) {
-			err = c.BuildTrimmedArchive(tpath, apath, b.LinkElf, elf_rom_sm)
-			if err != nil {
-				return err
+	for pkgName, _ := range cmn {
+		for lp, bpkg := range b.Packages {
+			if bpkg.Name() == pkgName {
+				delete(b.Packages, lp)
 			}
 		}
 	}
-
 	return nil
 }
 
-func (b *Builder) link(elfName string, linkerScript string) error {
+func (b *Builder) ExtractSymbolInfo() (error, *symbol.SymbolMap) {
+	syms := symbol.NewSymbolMap()
+	for _, bpkg := range b.Packages {
+		err, sm := b.ParseObjectLibrary(bpkg)
+		if err == nil {
+			syms, err = (*syms).Merge(sm)
+			if err != nil {
+				return err, nil
+			}
+		}
+	}
+	return nil, syms
+}
+
+func (b *Builder) link(elfName string, linkerScript string, keepSymbols []string) error {
 	c, err := b.newCompiler(b.appPkg, b.PkgBinDir(elfName))
 	if err != nil {
 		return err
@@ -351,14 +341,14 @@ func (b *Builder) link(elfName string, linkerScript string) error {
 
 	for _, bpkg := range b.Packages {
 		if util.NodeExist(b.ArchivePath(bpkg.Name())) {
-			pkgNames = append(pkgNames, b.TrimmedArchivePath(bpkg.Name()))
+			pkgNames = append(pkgNames, b.ArchivePath(bpkg.Name()))
 		}
 	}
 
 	if linkerScript != "" {
 		c.LinkerScript = b.target.Bsp.BasePath() + linkerScript
 	}
-	err = c.CompileElf(elfName, pkgNames, b.LinkElf)
+	err = c.CompileElf(elfName, pkgNames, keepSymbols, b.LinkElf)
 	if err != nil {
 		return err
 	}
@@ -537,7 +527,28 @@ func (b *Builder) Build() error {
 }
 
 func (b *Builder) Link(linkerScript string) error {
-	if err := b.link(b.AppElfPath(), linkerScript); err != nil {
+	if err := b.link(b.AppElfPath(), linkerScript, nil); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (b *Builder) KeepLink(linkerScript string, keepMap *symbol.SymbolMap) error {
+	keepSymbols := make([]string, 0)
+
+	if keepMap != nil {
+		for _, info := range *keepMap {
+			keepSymbols = append(keepSymbols, info.Name)
+		}
+	}
+	if err := b.link(b.AppElfPath(), linkerScript, keepSymbols); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (b *Builder) TestLink(linkerScript string) error {
+	if err := b.link(b.AppTempElfPath(), linkerScript, nil); err != nil {
 		return err
 	}
 	return nil
@@ -564,16 +575,10 @@ func (b *Builder) Test(p *pkg.LocalPackage) error {
 		if err != nil {
 			return err
 		}
-
-		err := b.BuildTrimmedArchives()
-		if err != nil {
-			return err
-		}
-
 	}
 
 	testFilename := b.TestExePath(p.Name())
-	err = b.link(testFilename, "")
+	err = b.link(testFilename, "", nil)
 	if err != nil {
 		return err
 	}

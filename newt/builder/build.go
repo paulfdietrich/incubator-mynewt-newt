@@ -630,3 +630,77 @@ func (b *Builder) FetchSymbolMap() (error, *symbol.SymbolMap) {
 func (b *Builder) GetTarget() *target.Target {
 	return b.target.GetTarget()
 }
+
+func (b *Builder) buildRomElf() error {
+
+	/* check dependencies on the ROM ELF.  This is really dependent on
+	 * all of the .a files, but since we already depend on the loader
+	 * .as to build the initial elf, we only need to check the app .a */
+	c, err := b.target.NewCompiler(b.AppElfPath())
+	d := toolchain.NewDepTracker(c)
+	if err != nil {
+		return err
+	}
+
+	archNames := []string{}
+
+	/* build the set of archive file names */
+	for _, bpkg := range b.Packages {
+		archivePath := b.ArchivePath(bpkg.Name())
+		if util.NodeExist(archivePath) {
+			archNames = append(archNames, archivePath)
+		}
+	}
+
+	bld, err := d.RomElfBuldRequired(b.AppLinkerElfPath(),
+		b.AppElfPath(), archNames)
+	if err != nil {
+		return err
+	}
+
+	if !bld {
+		return nil
+	}
+
+	util.StatusMessage(util.VERBOSITY_DEFAULT,
+		"Generating ROM elf \n")
+
+	/* slurp in all symbols from the actual binary */
+	err, loader_elf_sm := b.ParseObjectElf(b.AppElfPath())
+	if err != nil {
+		return err
+	}
+
+	/* handle special symbols */
+
+	/* Make sure this is not shared as this is what links in the
+	 * entire application (essential the root of the function tree */
+	loader_elf_sm.Remove("main")
+	loader_elf_sm.Remove("_start")
+	loader_elf_sm.Remove("__StackTop")
+	loader_elf_sm.Remove("__HeapLimit")
+	loader_elf_sm.Remove("__StackLimit")
+
+	err = b.CopySymbols(loader_elf_sm)
+	if err != nil {
+		return err
+	}
+
+	/* These symbols are needed by the split app so it can zero
+	 * bss and copy data from the loader app before it restarts,
+	 * but we have to rename them since it has its own copies of
+	 * these special linker symbols  */
+	tmp_sm := symbol.NewSymbolMap()
+	tmp_sm.Add(*symbol.NewElfSymbol("__HeapBase"))
+	tmp_sm.Add(*symbol.NewElfSymbol("__bss_start__"))
+	tmp_sm.Add(*symbol.NewElfSymbol("__bss_end__"))
+	tmp_sm.Add(*symbol.NewElfSymbol("__etext"))
+	tmp_sm.Add(*symbol.NewElfSymbol("__data_start__"))
+	tmp_sm.Add(*symbol.NewElfSymbol("__data_end__"))
+	err = c.RenameSymbols(tmp_sm, b.AppLinkerElfPath(), "_loader")
+
+	if err != nil {
+		return err
+	}
+	return nil
+}

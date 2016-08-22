@@ -20,6 +20,9 @@
 package builder
 
 import (
+	"fmt"
+	"strings"
+
 	"mynewt.apache.org/newt/newt/interfaces"
 	"mynewt.apache.org/newt/newt/pkg"
 	"mynewt.apache.org/newt/newt/project"
@@ -169,6 +172,7 @@ func (t *TargetBuilder) Build() error {
 		return err
 	}
 
+	/* Link the app as a test (using the normal single image linker script) */
 	err = t.App.TestLink(t.Bsp.LinkerScript)
 	if err != nil {
 		return err
@@ -180,11 +184,13 @@ func (t *TargetBuilder) Build() error {
 		return err
 	}
 
+	/* fetch the symbol list from the app temporary elf */
 	err, appElfSym := t.App.ParseObjectElf(t.App.AppTempElfPath())
 	if err != nil {
 		return err
 	}
 
+	/* rebuild the loader */
 	project.ResetDeps(t.LoaderList)
 
 	if err = t.Bsp.Reload(t.Loader.Features(t.Loader.BspPkg)); err != nil {
@@ -197,13 +203,14 @@ func (t *TargetBuilder) Build() error {
 		return err
 	}
 
-	/* perform the final link */
+	/* perform a test link of the loader */
 	err = t.Loader.TestLink(t.Bsp.LinkerScript)
 
 	if err != nil {
 		return err
 	}
 
+	/* extract the library symbols and elf symbols from the loader */
 	err, loaderLibSym := t.Loader.ExtractSymbolInfo()
 	if err != nil {
 		return err
@@ -214,6 +221,7 @@ func (t *TargetBuilder) Build() error {
 		return err
 	}
 
+	/* create the set of matching and non-matching symbols */
 	err, sm_match, sm_nomatch := symbol.IdenticalUnion(appLibSym,
 		loaderLibSym, true, false)
 
@@ -222,8 +230,19 @@ func (t *TargetBuilder) Build() error {
 	uncommon_pkgs := sm_nomatch.Packages()
 
 	util.StatusMessage(util.VERBOSITY_DEFAULT,
-		"Leaving %d symbols in Loader\n", len(*sm_match))
+		"Putting %d symbols from %d packages into Loader\n",
+		len(*sm_match), len(common_pkgs))
 
+	/* This is worth a special comment.  We are building both apps as
+	 * stand-alone apps against the normal linker file, so they will both
+	 * have a Reset_Handler symbol.  We need to ignore this here.  When
+	 * we build the split app, we use a special linker file which
+	 * uses a different entry point */
+	special_sm := symbol.NewSymbolMap()
+	special_sm.Add(*symbol.NewElfSymbol("Reset_Handler-app"))
+	special_sm.Add(*symbol.NewElfSymbol("Reset_Handler-loader"))
+
+	var badpkgs []string
 	for v, _ := range uncommon_pkgs {
 		if t.App.appPkg != nil && t.App.appPkg.Name() != v &&
 			t.Loader.appPkg != nil && t.Loader.appPkg.Name() != v {
@@ -231,16 +250,26 @@ func (t *TargetBuilder) Build() error {
 
 			var found bool
 			for _, sym := range *trouble {
-				if !sym.IsLocal() {
-					found = true
+				if _, ok := special_sm.Find(sym.Name); !ok {
+					if !sym.IsLocal() {
+						found = true
+					}
 				}
 			}
 
 			if found {
+				(*trouble).Dump("Trouble")
+
+				badpkgs = append(badpkgs, v)
 				delete(common_pkgs, v)
-				return util.NewNewtError("Common package has different implementaiton")
 			}
 		}
+	}
+
+	if len(badpkgs) > 0 {
+		errStr := fmt.Sprintf("Common packages with different implementaiton\n %s",
+			strings.Join(badpkgs, "\n "))
+		return util.NewNewtError(errStr)
 	}
 
 	/* The app can ignore these packages next time */
@@ -269,8 +298,6 @@ func (t *TargetBuilder) Build() error {
 	/* re-link loader */
 	project.ResetDeps(t.LoaderList)
 
-	/* perform the final link of the loader */
-
 	util.StatusMessage(util.VERBOSITY_DEFAULT,
 		"Migrating %d symbols to Loader\n", len(*preserve_elf))
 	err = t.Loader.KeepLink(t.Bsp.LinkerScript, preserve_elf)
@@ -281,120 +308,25 @@ func (t *TargetBuilder) Build() error {
 
 	/* create the special elf to link the app against */
 	/* its just the elf with a set of symbols removed and renamed */
-	err = t.buildRomElf()
+	err = t.Loader.buildRomElf()
 	if err != nil {
 		return err
 	}
 
+	/* set up the linker elf and linker script for the app */
 	t.App.LinkElf = t.Loader.AppLinkerElfPath()
-
 	linkerScript = t.Bsp.Part2LinkerScript
 
 	if linkerScript == "" {
 		return util.NewNewtError("BSP Must specify Linker script ")
 	}
 
-	t.App.LinkElf = t.Loader.AppLinkerElfPath()
+	/* link the app */
 	err = t.App.Link(linkerScript)
-
 	if err != nil {
 		return err
 	}
 
-	/* some debug to dump out the interesting stuff from the elfs */
-	err, final_ap_sm := t.App.ParseObjectLibraryFile(nil, t.App.AppElfPath(), false)
-
-	if err != nil {
-		return err
-	}
-
-	err, final_loader_sm := t.Loader.ParseObjectLibraryFile(nil,
-		t.Loader.AppElfPath(), false)
-
-	if err != nil {
-		return err
-	}
-
-	err, sm_match, sm_nomatch = symbol.IdenticalUnion(final_ap_sm,
-		final_loader_sm, true, true)
-
-	sm_nomatch.GlobalDataOnly().Dump("non matching Global Data symbols")
-	sm_nomatch.GlobalFunctionsOnly().Dump("non matching Global Code symbols")
-
-	return nil
-}
-
-func (t *TargetBuilder) buildRomElf() error {
-
-	/* check dependencies on the ROM ELF.  This is really dependent on
-	 * all of the .a files, but since we already depend on the loader
-	 * .as to build the initial elf, we only need to check the app .a */
-	c, err := t.NewCompiler(t.Loader.AppElfPath())
-	d := toolchain.NewDepTracker(c)
-	if err != nil {
-		return err
-	}
-
-	archNames := []string{}
-
-	/* build the set of archive file names */
-	for _, bpkg := range t.Loader.Packages {
-		archivePath := t.Loader.ArchivePath(bpkg.Name())
-		if util.NodeExist(archivePath) {
-			archNames = append(archNames, archivePath)
-		}
-	}
-
-	bld, err := d.RomElfBuldRequired(t.Loader.AppLinkerElfPath(),
-		t.Loader.AppElfPath(), archNames)
-	if err != nil {
-		return err
-	}
-
-	if !bld {
-		return nil
-	}
-
-	util.StatusMessage(util.VERBOSITY_DEFAULT,
-		"Generating ROM elf \n")
-
-	/* slurp in all symbols from the actual loader binary */
-	err, loader_elf_sm := t.Loader.ParseObjectElf(t.Loader.AppElfPath())
-	if err != nil {
-		return err
-	}
-
-	/* handle special symbols */
-
-	/* Make sure this is not shared as this is what links in the
-	 * entire application (essential the root of the function tree */
-	loader_elf_sm.Remove("main")
-	loader_elf_sm.Remove("_start")
-	loader_elf_sm.Remove("__StackTop")
-	loader_elf_sm.Remove("__HeapLimit")
-	loader_elf_sm.Remove("__StackLimit")
-
-	err = t.Loader.CopySymbols(loader_elf_sm)
-	if err != nil {
-		return err
-	}
-
-	/* These symbols are needed by the split app so it can zero
-	 * bss and copy data from the loader app before it restarts,
-	 * but we have to rename them since it has its own copies of
-	 * these special linker symbols  */
-	tmp_sm := symbol.NewSymbolMap()
-	tmp_sm.Add(*symbol.NewElfSymbol("__HeapBase"))
-	tmp_sm.Add(*symbol.NewElfSymbol("__bss_start__"))
-	tmp_sm.Add(*symbol.NewElfSymbol("__bss_end__"))
-	tmp_sm.Add(*symbol.NewElfSymbol("__etext"))
-	tmp_sm.Add(*symbol.NewElfSymbol("__data_start__"))
-	tmp_sm.Add(*symbol.NewElfSymbol("__data_end__"))
-	err = c.RenameSymbols(tmp_sm, t.Loader.AppLinkerElfPath(), "_loader")
-
-	if err != nil {
-		return err
-	}
 	return nil
 }
 

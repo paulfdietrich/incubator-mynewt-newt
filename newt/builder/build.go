@@ -330,7 +330,8 @@ func (b *Builder) ExtractSymbolInfo() (error, *symbol.SymbolMap) {
 	return nil, syms
 }
 
-func (b *Builder) link(elfName string, linkerScript string, keepSymbols []string) error {
+func (b *Builder) link(elfName string, linkerScript string,
+	keepSymbols []string) error {
 	c, err := b.newCompiler(b.appPkg, b.PkgBinDir(elfName))
 	if err != nil {
 		return err

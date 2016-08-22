@@ -20,8 +20,6 @@
 package builder
 
 import (
-	"fmt"
-
 	"mynewt.apache.org/newt/newt/interfaces"
 	"mynewt.apache.org/newt/newt/pkg"
 	"mynewt.apache.org/newt/newt/project"
@@ -216,31 +214,29 @@ func (t *TargetBuilder) Build() error {
 		return err
 	}
 
-	err, sm_match, sm_nomatch := symbol.IdenticalUnion(appLibSym, loaderLibSym, true, false)
-	fmt.Println(len(*sm_match), " symbols matched in library files ")
+	err, sm_match, sm_nomatch := symbol.IdenticalUnion(appLibSym,
+		loaderLibSym, true, false)
 
 	/* which packages are shared between the two */
 	common_pkgs := sm_match.Packages()
 	uncommon_pkgs := sm_nomatch.Packages()
+
+	util.StatusMessage(util.VERBOSITY_DEFAULT,
+		"Leaving %d symbols in Loader\n", len(*sm_match))
 
 	for v, _ := range uncommon_pkgs {
 		if t.App.appPkg != nil && t.App.appPkg.Name() != v &&
 			t.Loader.appPkg != nil && t.Loader.appPkg.Name() != v {
 			trouble := sm_nomatch.FilterPkg(v)
 
-			header := true
+			var found bool
 			for _, sym := range *trouble {
 				if !sym.IsLocal() {
-					if header {
-						fmt.Println("We have non-matching global symbols in ", v)
-						header = false
-					}
-					sym.Dump()
+					found = true
 				}
 			}
 
-			if !header {
-				fmt.Println("We cannot combine package ", v, " between app and loader ")
+			if found {
 				delete(common_pkgs, v)
 				return util.NewNewtError("Common package has different implementaiton")
 			}
@@ -274,8 +270,9 @@ func (t *TargetBuilder) Build() error {
 	project.ResetDeps(t.LoaderList)
 
 	/* perform the final link of the loader */
-	fmt.Println("Migrating ", len(*preserve_elf), " symbols to Loader")
-	preserve_elf.Dump("Preserving")
+
+	util.StatusMessage(util.VERBOSITY_DEFAULT,
+		"Migrating %d symbols to Loader\n", len(*preserve_elf))
 	err = t.Loader.KeepLink(t.Bsp.LinkerScript, preserve_elf)
 
 	if err != nil {
@@ -311,13 +308,15 @@ func (t *TargetBuilder) Build() error {
 		return err
 	}
 
-	err, final_loader_sm := t.Loader.ParseObjectLibraryFile(nil, t.Loader.AppElfPath(), false)
+	err, final_loader_sm := t.Loader.ParseObjectLibraryFile(nil,
+		t.Loader.AppElfPath(), false)
 
 	if err != nil {
 		return err
 	}
 
-	err, sm_match, sm_nomatch = symbol.IdenticalUnion(final_ap_sm, final_loader_sm, true, true)
+	err, sm_match, sm_nomatch = symbol.IdenticalUnion(final_ap_sm,
+		final_loader_sm, true, true)
 
 	sm_nomatch.GlobalDataOnly().Dump("non matching Global Data symbols")
 	sm_nomatch.GlobalFunctionsOnly().Dump("non matching Global Code symbols")
@@ -346,7 +345,8 @@ func (t *TargetBuilder) buildRomElf() error {
 		}
 	}
 
-	bld, err := d.RomElfBuldRequired(t.Loader.AppLinkerElfPath(), t.Loader.AppElfPath(), archNames)
+	bld, err := d.RomElfBuldRequired(t.Loader.AppLinkerElfPath(),
+		t.Loader.AppElfPath(), archNames)
 	if err != nil {
 		return err
 	}

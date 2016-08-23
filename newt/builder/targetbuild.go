@@ -259,7 +259,6 @@ func (t *TargetBuilder) Build() error {
 
 			if found {
 				(*trouble).Dump("Trouble")
-
 				badpkgs = append(badpkgs, v)
 				delete(common_pkgs, v)
 			}

@@ -27,6 +27,10 @@ import (
 	"mynewt.apache.org/newt/util"
 )
 
+const (
+	SPLIT_NMGR_OP_SPLIT = 0
+)
+
 type SplitMode int
 
 const (
@@ -126,8 +130,8 @@ func (s *Split) EncoderReadRequest() (*NmgrReq, error) {
 
 	nmr.Op = NMGR_OP_READ
 	nmr.Flags = 0
-	nmr.Group = NMGR_GROUP_ID_IMAGE
-	nmr.Id = IMGMGR_NMGR_OP_SPLITAPP
+	nmr.Group = NMGR_GROUP_ID_SPLIT
+	nmr.Id = SPLIT_NMGR_OP_SPLIT
 	nmr.Len = uint16(len(data))
 	nmr.Data = data
 
@@ -151,8 +155,8 @@ func (s *Split) EncoderWriteRequest() (*NmgrReq, error) {
 
 	nmr.Op = NMGR_OP_WRITE
 	nmr.Flags = 0
-	nmr.Group = NMGR_GROUP_ID_IMAGE
-	nmr.Id = IMGMGR_NMGR_OP_SPLITAPP
+	nmr.Group = NMGR_GROUP_ID_SPLIT
+	nmr.Id = SPLIT_NMGR_OP_SPLIT
 	nmr.Len = uint16(len(data))
 	nmr.Data = data
 

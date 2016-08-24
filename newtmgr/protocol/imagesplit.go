@@ -142,8 +142,6 @@ func (s *Split) EncoderWriteRequest() (*NmgrReq, error) {
 
 	data, err := json.Marshal(s)
 
-	fmt.Println(string(data[:]))
-
 	if err != nil {
 		return nil, err
 	}

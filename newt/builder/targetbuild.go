@@ -178,18 +178,6 @@ func (t *TargetBuilder) Build() error {
 		return err
 	}
 
-	/* fetch symbols from the elf and from the libraries themselves */
-	err, appLibSym := t.App.ExtractSymbolInfo()
-	if err != nil {
-		return err
-	}
-
-	/* fetch the symbol list from the app temporary elf */
-	err, appElfSym := t.App.ParseObjectElf(t.App.AppTempElfPath())
-	if err != nil {
-		return err
-	}
-
 	/* rebuild the loader */
 	project.ResetDeps(t.LoaderList)
 
@@ -210,15 +198,69 @@ func (t *TargetBuilder) Build() error {
 		return err
 	}
 
-	/* extract the library symbols and elf symbols from the loader */
-	err, loaderLibSym := t.Loader.ExtractSymbolInfo()
+	/* re-link the loader with app dependencies */
+	err, common_pkgs := t.RelinkLoader()
 	if err != nil {
 		return err
 	}
 
-	err, loaderElfSym := t.Loader.ParseObjectElf(t.Loader.AppTempElfPath())
+	/* The app can ignore these packages next time */
+	t.App.RemovePackages(common_pkgs)
+	/* add back the BSP package which needs linking in both */
+	t.App.AddPackage(t.Bsp.LocalPackage)
+
+	/* create the special elf to link the app against */
+	/* its just the elf with a set of symbols removed and renamed */
+	err = t.Loader.buildRomElf()
 	if err != nil {
 		return err
+	}
+
+	/* set up the linker elf and linker script for the app */
+	t.App.LinkElf = t.Loader.AppLinkerElfPath()
+	linkerScript = t.Bsp.Part2LinkerScript
+
+	if linkerScript == "" {
+		return util.NewNewtError("BSP Must specify Linker script ")
+	}
+
+	/* link the app */
+	err = t.App.Link(linkerScript)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+/*
+ * This function re-links the loader adding symbols from libraries
+ * shared with the app. Returns a list of the common packages shared
+ * by the app and loader
+ */
+func (t *TargetBuilder) RelinkLoader() (error, map[string]bool) {
+
+	/* fetch symbols from the elf and from the libraries themselves */
+	err, appLibSym := t.App.ExtractSymbolInfo()
+	if err != nil {
+		return err, nil
+	}
+
+	/* fetch the symbol list from the app temporary elf */
+	err, appElfSym := t.App.ParseObjectElf(t.App.AppTempElfPath())
+	if err != nil {
+		return err, nil
+	}
+
+	/* extract the library symbols and elf symbols from the loader */
+	err, loaderLibSym := t.Loader.ExtractSymbolInfo()
+	if err != nil {
+		return err, nil
+	}
+
+	err, loaderElfSym := t.Loader.ParseObjectElf(t.Loader.AppTempElfPath())
+	if err != nil {
+		return err, nil
 	}
 
 	/* create the set of matching and non-matching symbols */
@@ -229,7 +271,13 @@ func (t *TargetBuilder) Build() error {
 	common_pkgs := sm_match.Packages()
 	uncommon_pkgs := sm_nomatch.Packages()
 
-	util.StatusMessage(util.VERBOSITY_DEFAULT,
+	/* ensure that the loader and app packages are never shared */
+	delete(common_pkgs, t.App.appPkg.Name())
+	delete(common_pkgs, t.Loader.appPkg.Name())
+	uncommon_pkgs[t.App.appPkg.Name()] = true
+	uncommon_pkgs[t.Loader.appPkg.Name()] = true
+
+	util.StatusMessage(util.VERBOSITY_VERBOSE,
 		"Putting %d symbols from %d packages into Loader\n",
 		len(*sm_match), len(common_pkgs))
 
@@ -270,14 +318,8 @@ func (t *TargetBuilder) Build() error {
 		errStr := fmt.Sprintf("Common packages with different implementaiton\n %s \n",
 			strings.Join(badpkgs, "\n "))
 		errStr += symbol_str
-		return util.NewNewtError(errStr)
+		return util.NewNewtError(errStr), nil
 	}
-
-	/* The app can ignore these packages next time */
-	t.App.RemovePackages(common_pkgs)
-
-	/* add back the BSP package which needs linking in both */
-	t.App.AddPackage(t.Bsp.LocalPackage)
 
 	/* for each symbol in the elf of the app, if that symbol is in
 	 * a common package, keep that symbol in the loader */
@@ -299,36 +341,15 @@ func (t *TargetBuilder) Build() error {
 	/* re-link loader */
 	project.ResetDeps(t.LoaderList)
 
-	util.StatusMessage(util.VERBOSITY_DEFAULT,
-		"Migrating %d symbols to Loader\n", len(*preserve_elf))
+	util.StatusMessage(util.VERBOSITY_VERBOSE,
+		"Migrating %d unused symbols into Loader\n", len(*preserve_elf))
+
 	err = t.Loader.KeepLink(t.Bsp.LinkerScript, preserve_elf)
 
 	if err != nil {
-		return err
+		return err, nil
 	}
-
-	/* create the special elf to link the app against */
-	/* its just the elf with a set of symbols removed and renamed */
-	err = t.Loader.buildRomElf()
-	if err != nil {
-		return err
-	}
-
-	/* set up the linker elf and linker script for the app */
-	t.App.LinkElf = t.Loader.AppLinkerElfPath()
-	linkerScript = t.Bsp.Part2LinkerScript
-
-	if linkerScript == "" {
-		return util.NewNewtError("BSP Must specify Linker script ")
-	}
-
-	/* link the app */
-	err = t.App.Link(linkerScript)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err, common_pkgs
 }
 
 func (t *TargetBuilder) Test(p *pkg.LocalPackage) error {

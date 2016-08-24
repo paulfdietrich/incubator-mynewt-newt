@@ -314,11 +314,12 @@ func (tracker *DepTracker) TrimmedArchiveRequired(dstFile string,
 //     * One or more source object files has a newer modification time than the
 //       library file.
 func (tracker *DepTracker) LinkRequired(dstFile string,
-	options map[string]bool, objFiles []string, elfLib string) (bool, error) {
+	options map[string]bool, objFiles []string,
+	keepSymbols []string, elfLib string) (bool, error) {
 
 	// If the elf file was previously built with a different set of options, a
 	// rebuild is required.
-	cmd := tracker.compiler.CompileBinaryCmd(dstFile, options, objFiles, nil, elfLib)
+	cmd := tracker.compiler.CompileBinaryCmd(dstFile, options, objFiles, keepSymbols, elfLib)
 	if commandHasChanged(dstFile, cmd) {
 		util.StatusMessage(util.VERBOSITY_VERBOSE, "%s - link required; "+
 			"different command\n", dstFile)
@@ -340,6 +341,8 @@ func (tracker *DepTracker) LinkRequired(dstFile string,
 			return false, err
 		}
 		if elfDstModTime.After(dstModTime) {
+			util.StatusMessage(util.VERBOSITY_VERBOSE, "%s - link required; "+
+				"old elf file\n", elfLib)
 			return true, nil
 		}
 	}

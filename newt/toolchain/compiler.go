@@ -791,7 +791,8 @@ func (c *Compiler) CompileElf(binFile string, objFiles []string,
 	// Make sure the compiler package info is added to the global set.
 	c.ensureLclInfoAdded()
 
-	linkRequired, err := c.depTracker.LinkRequired(binFile, options, objFiles, elfLib)
+	linkRequired, err := c.depTracker.LinkRequired(binFile, options,
+		objFiles, keepSymbols, elfLib)
 	if err != nil {
 		return err
 	}

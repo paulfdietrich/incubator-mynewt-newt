@@ -631,7 +631,7 @@ func (b *Builder) GetTarget() *target.Target {
 	return b.target.GetTarget()
 }
 
-func (b *Builder) buildRomElf() error {
+func (b *Builder) buildRomElf(common *symbol.SymbolMap) error {
 
 	/* check dependencies on the ROM ELF.  This is really dependent on
 	 * all of the .a files, but since we already depend on the loader
@@ -665,23 +665,20 @@ func (b *Builder) buildRomElf() error {
 	util.StatusMessage(util.VERBOSITY_DEFAULT,
 		"Generating ROM elf \n")
 
-	/* slurp in all symbols from the actual binary */
-	err, loader_elf_sm := b.ParseObjectElf(b.AppElfPath())
-	if err != nil {
-		return err
-	}
+	/* the linker needs these symbols kept for the split app
+	 * to initialize the loader data and bss */
+	common.Add(*symbol.NewElfSymbol("__HeapBase"))
+	common.Add(*symbol.NewElfSymbol("__bss_start__"))
+	common.Add(*symbol.NewElfSymbol("__bss_end__"))
+	common.Add(*symbol.NewElfSymbol("__etext"))
+	common.Add(*symbol.NewElfSymbol("__data_start__"))
+	common.Add(*symbol.NewElfSymbol("__data_end__"))
 
-	/* handle special symbols */
+	/* the split app may need this to access interrupts */
+	common.Add(*symbol.NewElfSymbol("__vector_tbl_reloc__"))
+	common.Add(*symbol.NewElfSymbol("__isr_vector"))
 
-	/* Make sure this is not shared as this is what links in the
-	 * entire application (essential the root of the function tree */
-	loader_elf_sm.Remove("main")
-	loader_elf_sm.Remove("_start")
-	loader_elf_sm.Remove("__StackTop")
-	loader_elf_sm.Remove("__HeapLimit")
-	loader_elf_sm.Remove("__StackLimit")
-
-	err = b.CopySymbols(loader_elf_sm)
+	err = b.CopySymbols(common)
 	if err != nil {
 		return err
 	}

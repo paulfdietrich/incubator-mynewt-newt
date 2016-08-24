@@ -199,7 +199,7 @@ func (t *TargetBuilder) Build() error {
 	}
 
 	/* re-link the loader with app dependencies */
-	err, common_pkgs := t.RelinkLoader()
+	err, common_pkgs, common_syms := t.RelinkLoader()
 	if err != nil {
 		return err
 	}
@@ -211,7 +211,7 @@ func (t *TargetBuilder) Build() error {
 
 	/* create the special elf to link the app against */
 	/* its just the elf with a set of symbols removed and renamed */
-	err = t.Loader.buildRomElf()
+	err = t.Loader.buildRomElf(common_syms)
 	if err != nil {
 		return err
 	}
@@ -238,29 +238,29 @@ func (t *TargetBuilder) Build() error {
  * shared with the app. Returns a list of the common packages shared
  * by the app and loader
  */
-func (t *TargetBuilder) RelinkLoader() (error, map[string]bool) {
+func (t *TargetBuilder) RelinkLoader() (error, map[string]bool, *symbol.SymbolMap) {
 
 	/* fetch symbols from the elf and from the libraries themselves */
 	err, appLibSym := t.App.ExtractSymbolInfo()
 	if err != nil {
-		return err, nil
+		return err, nil, nil
 	}
 
 	/* fetch the symbol list from the app temporary elf */
 	err, appElfSym := t.App.ParseObjectElf(t.App.AppTempElfPath())
 	if err != nil {
-		return err, nil
+		return err, nil, nil
 	}
 
 	/* extract the library symbols and elf symbols from the loader */
 	err, loaderLibSym := t.Loader.ExtractSymbolInfo()
 	if err != nil {
-		return err, nil
+		return err, nil, nil
 	}
 
 	err, loaderElfSym := t.Loader.ParseObjectElf(t.Loader.AppTempElfPath())
 	if err != nil {
-		return err, nil
+		return err, nil, nil
 	}
 
 	/* create the set of matching and non-matching symbols */
@@ -273,9 +273,14 @@ func (t *TargetBuilder) RelinkLoader() (error, map[string]bool) {
 
 	/* ensure that the loader and app packages are never shared */
 	delete(common_pkgs, t.App.appPkg.Name())
-	delete(common_pkgs, t.Loader.appPkg.Name())
 	uncommon_pkgs[t.App.appPkg.Name()] = true
+	ma := sm_match.FilterPkg(t.App.appPkg.Name())
+	sm_match.RemoveMap(ma)
+
+	delete(common_pkgs, t.Loader.appPkg.Name())
 	uncommon_pkgs[t.Loader.appPkg.Name()] = true
+	ml := sm_match.FilterPkg(t.Loader.appPkg.Name())
+	sm_match.RemoveMap(ml)
 
 	util.StatusMessage(util.VERBOSITY_VERBOSE,
 		"Putting %d symbols from %d packages into Loader\n",
@@ -318,7 +323,7 @@ func (t *TargetBuilder) RelinkLoader() (error, map[string]bool) {
 		errStr := fmt.Sprintf("Common packages with different implementaiton\n %s \n",
 			strings.Join(badpkgs, "\n "))
 		errStr += symbol_str
-		return util.NewNewtError(errStr), nil
+		return util.NewNewtError(errStr), nil, nil
 	}
 
 	/* for each symbol in the elf of the app, if that symbol is in
@@ -347,9 +352,9 @@ func (t *TargetBuilder) RelinkLoader() (error, map[string]bool) {
 	err = t.Loader.KeepLink(t.Bsp.LinkerScript, preserve_elf)
 
 	if err != nil {
-		return err, nil
+		return err, nil, nil
 	}
-	return err, common_pkgs
+	return err, common_pkgs, sm_match
 }
 
 func (t *TargetBuilder) Test(p *pkg.LocalPackage) error {

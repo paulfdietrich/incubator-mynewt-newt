@@ -309,6 +309,12 @@ func (s *SymbolMap) Remove(name string) {
 	delete(*s, name)
 }
 
+func (s *SymbolMap) RemoveMap(subset *SymbolMap) {
+	for name, _ := range *subset {
+		(*s).Remove(name)
+	}
+}
+
 /* Returns true if the symbol is present in the symbol map */
 func (s *SymbolMap) Find(name string) (*SymbolInfo, bool) {
 	val, ok := (*s)[name]

@@ -143,8 +143,8 @@ func IdenticalUnion(s1 *SymbolMap, s2 *SymbolMap, comparePkg bool,
 
 				err_str = err_str + fmt.Sprintf("%s-%s\n", info1.Sprintf(), info2.Sprintf())
 			} else {
-				info1.Name = info1.Name + "-app"
-				info2.Name = info2.Name + "-loader"
+				info1.Name = info1.Name + "(app)"
+				info2.Name = info2.Name + "(loader)"
 				s_no.Add(info1)
 				s_no.Add(info2)
 			}
@@ -236,6 +236,23 @@ func (s *SymbolMap) FilterPkg(pname string) *SymbolMap {
 		}
 	}
 	return sm
+}
+
+func (s *SymbolMap) String(name string) string {
+	// To store the keys in slice in sorted order
+	var keys []string
+	for k := range *s {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	// To perform the opertion you want
+	out := fmt.Sprintf("Dumping symbols in file: %s\n", name)
+	for _, k := range keys {
+		info1 := (*s)[k]
+		out += info1.Sprintf()
+	}
+	return out
 }
 
 func (s *SymbolMap) Dump(name string) {

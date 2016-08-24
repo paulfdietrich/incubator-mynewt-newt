@@ -239,10 +239,11 @@ func (t *TargetBuilder) Build() error {
 	 * we build the split app, we use a special linker file which
 	 * uses a different entry point */
 	special_sm := symbol.NewSymbolMap()
-	special_sm.Add(*symbol.NewElfSymbol("Reset_Handler-app"))
-	special_sm.Add(*symbol.NewElfSymbol("Reset_Handler-loader"))
+	special_sm.Add(*symbol.NewElfSymbol("Reset_Handler(app)"))
+	special_sm.Add(*symbol.NewElfSymbol("Reset_Handler(loader)"))
 
 	var badpkgs []string
+	var symbol_str string
 	for v, _ := range uncommon_pkgs {
 		if t.App.appPkg != nil && t.App.appPkg.Name() != v &&
 			t.Loader.appPkg != nil && t.Loader.appPkg.Name() != v {
@@ -258,7 +259,7 @@ func (t *TargetBuilder) Build() error {
 			}
 
 			if found {
-				(*trouble).Dump("Trouble")
+				symbol_str = (*trouble).String("Non Matching Symbols")
 				badpkgs = append(badpkgs, v)
 				delete(common_pkgs, v)
 			}
@@ -266,8 +267,9 @@ func (t *TargetBuilder) Build() error {
 	}
 
 	if len(badpkgs) > 0 {
-		errStr := fmt.Sprintf("Common packages with different implementaiton\n %s",
+		errStr := fmt.Sprintf("Common packages with different implementaiton\n %s \n",
 			strings.Join(badpkgs, "\n "))
+		errStr += symbol_str
 		return util.NewNewtError(errStr)
 	}
 
